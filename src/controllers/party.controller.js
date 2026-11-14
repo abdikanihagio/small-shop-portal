@@ -13,16 +13,8 @@ module.exports = {
   listCustomers: ({ user, query }) => customers.list(user, { includeInactive: includeInactive(query) }),
   getCustomer: ({ params }) => customers.get(id(params.id)),
   createCustomer: ({ actor, body }) => customers.create(actor, readCustomer(body)),
-  updateCustomer: ({ actor, params, body }) => {
-    const customerId = id(params.id);
-    customers.get(customerId);
-    return customers.update(actor, customerId, readCustomer(body), readActive(body));
-  },
-  customerPayment: ({ actor, params, body }) => {
-    const customerId = id(params.id);
-    customers.get(customerId);
-    return customers.recordPayment(actor, customerId, readPayment(body));
-  },
+  updateCustomer: ({ actor, params, body }) => customers.update(actor, id(params.id), readCustomer(body), readActive(body)),
+  customerPayment: ({ actor, params, body }) => customers.recordPayment(actor, id(params.id), readPayment(body)),
   reverseCustomerPayment: ({ actor, params, body }) => customers.reversePayment(actor, id(params.id), id(params.pid, 'pid'), reason(body.reason)),
   customerStatement: ({ params, query }) => {
     const { from, to } = dateRange(query, { allTime: true });
@@ -38,16 +30,8 @@ module.exports = {
   listSuppliers: ({ query }) => suppliers.list({ includeInactive: includeInactive(query) }),
   getSupplier: ({ params }) => suppliers.get(id(params.id)),
   createSupplier: ({ actor, body }) => suppliers.create(actor, readSupplier(body)),
-  updateSupplier: ({ actor, params, body }) => {
-    const supplierId = id(params.id);
-    suppliers.get(supplierId);
-    return suppliers.update(actor, supplierId, readSupplier(body), readActive(body));
-  },
-  supplierPayment: ({ actor, params, body }) => {
-    const supplierId = id(params.id);
-    suppliers.get(supplierId);
-    return suppliers.recordPayment(actor, supplierId, readPayment(body));
-  },
+  updateSupplier: ({ actor, params, body }) => suppliers.update(actor, id(params.id), readSupplier(body), readActive(body)),
+  supplierPayment: ({ actor, params, body }) => suppliers.recordPayment(actor, id(params.id), readPayment(body)),
   reverseSupplierPayment: ({ actor, params, body }) => suppliers.reversePayment(actor, id(params.id), id(params.pid, 'pid'), reason(body.reason)),
   supplierStatement: ({ params, query }) => {
     const { from, to } = dateRange(query, { allTime: true });

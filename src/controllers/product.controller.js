@@ -10,11 +10,7 @@ const { sendDownload, XLSX_TYPE } = require('../utils/http');
 module.exports = {
   list: ({ user, query }) => products.list(user, { includeInactive: query.get('all') === '1' }),
   create: ({ actor, body }) => products.create(actor, readProduct(body), readOpeningStock(body)),
-  update: ({ actor, params, body }) => {
-    const productId = id(params.id);
-    products.assertExists(productId);
-    return products.update(actor, productId, readProduct(body), body.active !== false);
-  },
+  update: ({ actor, params, body }) => products.update(actor, id(params.id), readProduct(body), body.active !== false),
 
   // The file arrives as the raw request body (application/octet-stream).
   importFile: ({ actor, body, query }) =>

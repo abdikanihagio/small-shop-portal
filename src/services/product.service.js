@@ -5,10 +5,6 @@ const visibility = require('./visibility.service');
 const { transaction } = require('../config/database');
 const { bad, notFound } = require('../utils/http-error');
 
-function assertExists(id) {
-  if (!ProductModel.findById(id)) throw notFound('Product not found');
-}
-
 const list = (user, { includeInactive }) => ProductModel.list({ includeInactive }).map((p) => visibility.product(user, p));
 
 function create(actor, p, openingStock) {
@@ -36,4 +32,4 @@ function update(actor, id, p, active) {
   return visibility.product(actor, ProductModel.findById(id));
 }
 
-module.exports = { list, assertExists, create, update };
+module.exports = { list, create, update };

@@ -1,8 +1,7 @@
 // Database tables and upgrades for databases created by earlier versions.
 // Every step checks what already exists, so running it on every start is safe.
 const crypto = require('node:crypto');
-const { DEFAULT_SETTINGS, PAYMENT_REFS } = require('../config/constants');
-const { formatRef } = require('../utils/refs');
+const { DEFAULT_SETTINGS, PAYMENT_REFS, formatRef } = require('../config/constants');
 
 function migrate(db) {
   db.exec(`

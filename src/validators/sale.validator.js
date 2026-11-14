@@ -15,37 +15,27 @@ function readSale(body, { allowPriceOverride }) {
   const method = SALE_PAYMENT_METHODS.includes(body.payment_method) ? body.payment_method : 'cash';
   const customerId = body.customer_id ? int(body.customer_id, 'Customer') : null;
   if (method === 'credit' && !customerId) throw bad('Choose a registered customer for a credit sale');
-  return { items: body.items, allowPriceOverride, discountPercent, discountAmount, method, customerId };
-}
-
-// One sale line, checked when the sale is made (after the customer, before the next line).
-function readSaleLine(it, { allowPriceOverride }) {
-  return {
+  const items = body.items.map((it) => ({
     productId: int(it.product_id, 'Product'),
     qty: int(it.qty, 'Quantity', { min: 1, max: MAX_QTY }),
-    readPrice: () => (allowPriceOverride && it.price != null ? money(it.price, 'Price') : null),
-  };
+    price: allowPriceOverride && it.price != null ? money(it.price, 'Price') : null,
+  }));
+  return { items, discountPercent, discountAmount, method, customerId };
 }
 
-// A return request: [{ sale_item_id, qty, damaged }] plus how the refund is paid. The items are
-// checked against the sale (readReturnItems) after the sale itself has been found.
+// Items coming back from a sale: [{ sale_item_id, qty, damaged }] plus how the refund is paid.
 function readReturn(body) {
-  return { reason: str(body.reason, 'Reason', { max: 200 }), items: body.items, refundMethod: String(body.refund_method || ''), preview: !!body.preview };
-}
-
-function readReturnItems(items) {
-  if (!Array.isArray(items)) throw bad('Choose the items being returned');
-  const out = [];
-  for (const it of items) {
+  const reason = str(body.reason, 'Reason', { max: 200 });
+  if (!Array.isArray(body.items)) throw bad('Choose the items being returned');
+  const items = [];
+  for (const it of body.items) {
     const qty = int(it.qty ?? 0, 'Quantity', { min: 0, max: MAX_QTY });
-    if (qty) out.push({ saleItemId: Number(it.sale_item_id), qty, damaged: !!it.damaged });
+    if (qty) items.push({ saleItemId: Number(it.sale_item_id), qty, damaged: !!it.damaged });
   }
-  return out;
+  if (!items.length) throw bad('Choose at least one item to return');
+  const refundMethod = String(body.refund_method || '');
+  if (refundMethod && !['cash', 'card', 'mobile', 'credit'].includes(refundMethod)) throw bad('Refund method must be cash, card, mobile or credit');
+  return { reason, items, refundMethod, preview: !!body.preview };
 }
 
-const REFUND_METHODS = ['cash', 'card', 'mobile', 'credit'];
-function checkRefundMethod(method) {
-  if (method && !REFUND_METHODS.includes(method)) throw bad('Refund method must be cash, card, mobile or credit');
-}
-
-module.exports = { readSale, readSaleLine, readReturn, readReturnItems, checkRefundMethod };
+module.exports = { readSale, readReturn };

@@ -1,9 +1,6 @@
 // Sales, their items, and returns against them.
 const { db } = require('../config/database');
 
-const ITEMS_WITH_RETURNED = `SELECT i.*, COALESCE((SELECT SUM(ri.qty) FROM return_items ri WHERE ri.sale_item_id = i.id), 0) AS returned_qty
-  FROM sale_items i WHERE i.sale_id = ?`;
-
 const SaleModel = {
   list: (from, to) =>
     db
@@ -18,8 +15,14 @@ const SaleModel = {
   findById: (id) => db.prepare('SELECT * FROM sales WHERE id = ?').get(id),
   findWithCashier: (id) => db.prepare('SELECT s.*, u.username FROM sales s LEFT JOIN users u ON u.id = s.user_id WHERE s.id = ?').get(id),
   items: (saleId) => db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId),
-  itemsWithReturned: (saleId) => db.prepare(ITEMS_WITH_RETURNED).all(saleId),
-  itemsWithReturnedOrdered: (saleId) => db.prepare(ITEMS_WITH_RETURNED + ' ORDER BY i.id').all(saleId),
+  // Each item with how many of it have already been returned.
+  itemsWithReturned: (saleId) =>
+    db
+      .prepare(
+        `SELECT i.*, COALESCE((SELECT SUM(ri.qty) FROM return_items ri WHERE ri.sale_item_id = i.id), 0) AS returned_qty
+         FROM sale_items i WHERE i.sale_id = ? ORDER BY i.id`
+      )
+      .all(saleId),
 
   create: (s) =>
     db

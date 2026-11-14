@@ -3,7 +3,6 @@
 const RoleModel = require('../models/role.model');
 const audit = require('./audit.service');
 const { PERMISSIONS } = require('../config/permissions');
-const { readRoleName, readPermissions } = require('../validators/admin.validator');
 const { bad, notFound } = require('../utils/http-error');
 
 const list = () => ({ permissions: PERMISSIONS, roles: RoleModel.listWithUserCounts() });
@@ -18,22 +17,20 @@ function assertNameFree(name, exceptId) {
   if (RoleModel.nameTaken(name, exceptId)) throw bad('A role with this name already exists');
 }
 
-// input: { name, permissions } as sent.
-function create(actor, input) {
-  const name = readRoleName(input.name);
+function create(actor, { name, permissions }) {
   assertNameFree(name);
-  const permissions = readPermissions(input.permissions);
   const id = RoleModel.create(name, permissions);
   audit.record(actor, 'role.created', 'role', id, { name, permissions: permissions.join(', ') });
   return RoleModel.findById(id);
 }
 
 // The built-in Cashier role keeps its name; its permissions can change.
-function update(actor, id, input) {
+// Only what was sent changes.
+function update(actor, id, { name: newName, permissions: newPermissions }) {
   const old = findRole(id);
-  const name = old.builtin ? old.name : readRoleName(input.name ?? old.name);
+  const name = old.builtin ? old.name : newName ?? old.name;
   assertNameFree(name, id);
-  const permissions = input.permissions !== undefined ? readPermissions(input.permissions) : old.permissions;
+  const permissions = newPermissions ?? old.permissions;
   RoleModel.update(id, name, permissions);
   const before = new Set(old.permissions);
   const after = new Set(permissions);

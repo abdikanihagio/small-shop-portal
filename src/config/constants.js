@@ -1,6 +1,11 @@
 // Fixed limits and timings used across the application.
 
+// CUST001, SUPP012, RET120 … (at least three digits).
+const formatRef = (prefix, n) => prefix + String(n).padStart(3, '0');
+
 module.exports = Object.freeze({
+  formatRef,
+
   // Sign-in sessions
   SESSION_DAYS: 7,
   IDLE_MS: 12 * 3600e3, // signed out after 12 hours without using the portal

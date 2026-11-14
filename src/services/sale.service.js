@@ -8,8 +8,7 @@ const settings = require('./settings.service');
 const visibility = require('./visibility.service');
 const { transaction } = require('../config/database');
 const { can } = require('../config/permissions');
-const { str, safeTotal } = require('../validators/common.validator');
-const { readSaleLine } = require('../validators/sale.validator');
+const { safeTotal } = require('../validators/common.validator');
 const { cents } = require('../utils/csv');
 const { bad, notFound } = require('../utils/http-error');
 
@@ -18,7 +17,7 @@ const list = (user, { from, to }) => SaleModel.list(from, to).map((s) => visibil
 function get(user, id) {
   const sale = SaleModel.findWithCashier(id);
   if (!sale) throw notFound('Sale not found');
-  sale.items = SaleModel.itemsWithReturnedOrdered(id);
+  sale.items = SaleModel.itemsWithReturned(id);
   sale.returns = SaleModel.returnsWithItems(id);
   return visibility.saleDetail(user, sale);
 }
@@ -35,7 +34,7 @@ function checkCreditLimit(customer, total) {
 }
 
 // sale: validated by validators/sale.validator readSale.
-function create(actor, { items, allowPriceOverride, discountPercent, discountAmount, method, customerId }) {
+function create(actor, { items, discountPercent, discountAmount, method, customerId }) {
   const shop = settings.get();
   const taxRate = Number(shop.tax_rate) || 0;
   return transaction(() => {
@@ -46,14 +45,13 @@ function create(actor, { items, allowPriceOverride, discountPercent, discountAmo
     }
     const lines = [];
     const wanted = new Map(); // product id → total quantity in this sale
-    for (const item of items) {
-      const it = readSaleLine(item, { allowPriceOverride });
+    for (const it of items) {
       wanted.set(it.productId, (wanted.get(it.productId) || 0) + it.qty);
       const p = ProductModel.findActiveById(it.productId);
       if (!p) throw bad('A product in this sale no longer exists');
       if (wanted.get(it.productId) > p.stock) throw bad(`Not enough stock for ${p.name} (only ${p.stock} left)`);
-      // Only users allowed unlimited discounts may override the price; everyone else sells at list price.
-      lines.push({ p, qty: it.qty, price: it.readPrice() ?? p.price_cents });
+      // Only users allowed unlimited discounts may override the price (the validator drops it otherwise).
+      lines.push({ p, qty: it.qty, price: it.price ?? p.price_cents });
     }
     const subtotal = safeTotal(lines.reduce((s, l) => s + l.qty * l.price, 0), 'Sale total');
     const discount = discountPercent === null ? discountAmount : Math.round((subtotal * discountPercent) / 100);
@@ -92,13 +90,12 @@ function create(actor, { items, allowPriceOverride, discountPercent, discountAmo
 }
 
 // Cancels a whole sale and puts every item back in stock.
-function voidSale(actor, id, reasonInput) {
+function voidSale(actor, id, reason) {
   return transaction(() => {
     const sale = SaleModel.findById(id);
     if (!sale) throw notFound('Sale not found');
     if (sale.status === 'void') throw bad('Sale is already void');
     if (SaleModel.hasReturns(id)) throw bad('This sale already has returns. Use Return items for the rest instead of voiding.');
-    const reason = str(reasonInput, 'Reason');
     SaleModel.markVoid(id);
     for (const it of SaleModel.items(id)) {
       ProductModel.addStock(it.product_id, it.qty);

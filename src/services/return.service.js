@@ -6,7 +6,6 @@ const StockModel = require('../models/stock.model');
 const audit = require('./audit.service');
 const inventory = require('./inventory.service');
 const { transaction } = require('../config/database');
-const { readReturnItems, checkRefundMethod } = require('../validators/sale.validator');
 const { bad, notFound } = require('../utils/http-error');
 
 // Works out a return's refund as its exact share of what the customer paid. Shares are computed on a
@@ -15,7 +14,7 @@ function computeReturn(sale, { items, refundMethod }) {
   if (sale.status !== 'completed') throw bad('Only completed sales can have items returned');
   const saleItems = SaleModel.itemsWithReturned(sale.id);
   const lines = [];
-  for (const it of readReturnItems(items)) {
+  for (const it of items) {
     const si = saleItems.find((x) => x.id === it.saleItemId);
     if (!si) throw bad('An item is not part of this sale');
     if (lines.some((l) => l.si.id === si.id)) throw bad('The same item is listed twice');
@@ -23,7 +22,6 @@ function computeReturn(sale, { items, refundMethod }) {
     if (it.qty > left) throw bad(`Only ${left} of ${si.name} can still be returned`);
     lines.push({ si, qty: it.qty, damaged: it.damaged });
   }
-  if (!lines.length) throw bad('Choose at least one item to return');
 
   const before = saleItems.reduce((a, i) => a + i.returned_qty * i.price_cents, 0);
   const gross = lines.reduce((a, l) => a + l.qty * l.si.price_cents, 0);
@@ -32,7 +30,6 @@ function computeReturn(sale, { items, refundMethod }) {
   const discount = share(sale.discount_cents);
   const tax = share(sale.tax_cents);
 
-  checkRefundMethod(refundMethod);
   let method = refundMethod;
   if (sale.payment_method === 'credit') method = 'credit'; // a credit sale is refunded by reducing what the customer owes
   else if (!method) method = sale.payment_method;

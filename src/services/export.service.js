@@ -100,7 +100,7 @@ const CSV_EXPORTS = {
       { label: 'By', get: (r) => r.username },
     ]),
   'products.csv': () =>
-    toCsv(ProductModel.allByName(), [
+    toCsv(ProductModel.all(), [
       { label: 'SKU', get: (r) => r.sku },
       { label: 'Name', get: (r) => r.name },
       { label: 'Category', get: (r) => r.category },
@@ -122,11 +122,6 @@ function accountingCsv(name, from, to) {
 
 // ---- statements ----
 
-const STATEMENT_TAIL = [
-  { label: 'Paid', get: (r) => cents(r.paid_cents) },
-  { label: 'Balance owed', get: (r) => cents(r.balance_cents) },
-];
-
 function customerStatementCsv(st) {
   const rows = [
     { date: st.from, kind: 'Opening balance', ref: '', description: '', method: '', status: '', charge_cents: 0, paid_cents: 0, balance_cents: st.opening_balance },
@@ -140,7 +135,8 @@ function customerStatementCsv(st) {
     { label: 'Payment method', get: (r) => r.method },
     { label: 'Status', get: (r) => r.status },
     { label: 'Charged', get: (r) => cents(r.charge_cents) },
-    ...STATEMENT_TAIL,
+    { label: 'Paid', get: (r) => cents(r.paid_cents) },
+    { label: 'Balance owed', get: (r) => cents(r.balance_cents) },
   ]);
   return { data, filename: `statement-${fileSafe(st.customer.name)}-${st.from}-to-${st.to}.csv` };
 }
@@ -157,7 +153,8 @@ function supplierStatementCsv(st) {
     { label: 'Details', get: (r) => r.description },
     { label: 'Payment method', get: (r) => r.method },
     { label: 'Received (value)', get: (r) => cents(r.charge_cents) },
-    ...STATEMENT_TAIL,
+    { label: 'Paid', get: (r) => cents(r.paid_cents) },
+    { label: 'Balance owed', get: (r) => cents(r.balance_cents) },
   ]);
   return { data, filename: `supplier-${fileSafe(st.supplier.name)}-${st.from}-to-${st.to}.csv` };
 }

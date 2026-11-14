@@ -1,6 +1,5 @@
 const { db } = require('../config/database');
-const { PAYMENT_REFS } = require('../config/constants');
-const { formatRef } = require('../utils/refs');
+const { PAYMENT_REFS, formatRef } = require('../config/constants');
 
 const SettingsModel = {
   // Keys starting seq_ / sys_ are internal counters and flags; they are never sent to the browser.

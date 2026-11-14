@@ -6,7 +6,7 @@ const RoleModel = require('../models/role.model');
 const audit = require('./audit.service');
 const sessions = require('./session.service');
 const settings = require('./settings.service');
-const { int, str } = require('../validators/common.validator');
+const { int } = require('../validators/common.validator');
 const { hashPassword } = require('../utils/crypto');
 const { bad, notFound, forbidden } = require('../utils/http-error');
 
@@ -41,7 +41,7 @@ async function create(actor, { username, name, password, role, role_id }) {
   if (r.role === 'admin' && !actor.is_owner) throw forbidden('Only the owner can add admins');
   if (UserModel.usernameExists(username)) throw bad('Username already exists');
   const { hash, salt } = await hashPassword(password);
-  const id = UserModel.create({ username, name: str(name, 'Name'), role: r.role, roleId: r.role_id, hash, salt });
+  const id = UserModel.create({ username, name, role: r.role, roleId: r.role_id, hash, salt });
   audit.record(actor, 'user.created', 'user', id, { username, role: r.role_name });
   return { ok: true };
 }

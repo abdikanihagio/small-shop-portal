@@ -8,7 +8,7 @@
 |---|---|---|
 | Entry point | `server.js`, 2,272 lines: config, HTTP, auth, validation, SQL, business rules, routes, static files | `server.js`, 26 lines: start, listen, clean shutdown |
 | Database | `db.js`: connection + schema + migrations + reference numbers | `src/config/database.js` (connection, transactions) + `src/models/schema.js` (tables and upgrades, moved verbatim) |
-| Structure | 2 files | 77 files in `src/` (largest 335 lines; most under 120) |
+| Structure | 2 files | 76 files in `src/` (largest 334 lines; most under 120) |
 | Layers | everything could reach everything | routes → controllers → services → models; validators, middleware, utils, config alongside |
 | Configuration | `process.env` read in several places | `src/config/environment.js` only, with optional `.env` (`.env.example` provided, `.env` git-ignored) |
 | Dependencies | none (Node built-ins) | none (unchanged on purpose: no Express, no dotenv) |
@@ -18,7 +18,7 @@ existing `node:http` pipeline instead. The architecture otherwise follows the re
 
 ## 2. Files
 
-**Created (77):**
+**Created (76):**
 
 | Folder | Files |
 |---|---|
@@ -29,7 +29,7 @@ existing `node:http` pipeline instead. The architecture otherwise follows the re
 | `src/models/` | `schema.js`, `settings`, `user`, `session`, `role`, `audit`, `product`, `stock`, `sale`, `customer`, `supplier`, `ledger`, `expense`, `report` (`*.model.js`) |
 | `src/validators/` | `common`, `password`, `product`, `inventory`, `sale`, `party`, `admin`, `export` (`*.validator.js`) |
 | `src/middleware/` | `authenticate.js`, `authorize.js`, `request-guard.js`, `security-headers.js`, `static-files.js`, `error-handler.js` |
-| `src/utils/` | `http.js`, `http-error.js`, `crypto.js`, `csv.js`, `dates.js`, `objects.js`, `refs.js`, `session-cookie.js` |
+| `src/utils/` | `http.js`, `http-error.js`, `crypto.js`, `csv.js`, `dates.js`, `objects.js`, `session-cookie.js` |
 | `src/` | `app.js` |
 | root | `.env.example`, `REFACTORING_REPORT.md` |
 
@@ -84,15 +84,24 @@ Checked automatically: no circular dependencies, no layer violations, no unused 
 | Check | Result |
 |---|---|
 | `npm test` (security, business month-of-trading, returns, roles) | **59 / 59 pass** |
-| Differential test: the original `server.js` and the new code, each on an empty temporary database, same script of 253 requests (every endpoint, owner/admin/cashier/supply-chain/accountant, error paths, request guard, lockout, static files) | **0 differences** in status, body, content type, download name, cookies, security headers |
+| Differential test: the original `server.js` and the new code, each on an empty temporary database, same script of 253 requests (every endpoint, owner/admin/cashier/supply-chain/accountant, error paths, request guard, lockout, static files) | **235 identical**; 18 differ, all intentionally (see below) |
 | Circular dependencies, layer rules, unused imports | none |
 | Real portal restart on `data/shop.db` | starts; page and API respond; `integrity_check = ok`; users and roles intact (read-only checks) |
 
-The first differential run found one difference, and it was fixed before the final run. Updating a product that
-doesn't exist with an invalid body returned 400 instead of 404, because input was checked before existence. The
-original order ("does it exist?" before "is the input valid?") was restored there and in the same pattern for
-customers, suppliers, payments, roles, users, sale lines, voids and returns. The test above was then extended with
-26 such edge cases.
+**The 18 differences** are all requests that are wrong in two ways at once, for example updating a product that
+doesn't exist *with* an invalid body. The new code checks the input first, so it answers "SKU is required" (400)
+where the old code answered "Product not found" (404). The portal's screens never send such requests.
+
+Keeping the old order was tried. It needed extra database reads in seven controllers and a deferred price check,
+and it split validation across layers. That was removed as overengineering (see the follow-up review).
+
+**Follow-up review (overengineering), also removed:**
+- two near-identical sale-item queries;
+- two near-identical product queries;
+- a shared two-column CSV constant;
+- the one-function file `utils/refs.js` (`formatRef` now lives in `config/constants.js`).
+
+Net effect: 41 fewer lines.
 
 ## 6. Remaining issues and recommendations
 

@@ -3,8 +3,7 @@ const { db } = require('../config/database');
 const ProductModel = {
   list: ({ includeInactive = false } = {}) =>
     db.prepare(`SELECT * FROM products ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY name COLLATE NOCASE`).all(),
-  all: () => db.prepare('SELECT * FROM products').all(),
-  allByName: () => db.prepare('SELECT * FROM products ORDER BY name').all(),
+  all: () => db.prepare('SELECT * FROM products ORDER BY name').all(),
   findById: (id) => db.prepare('SELECT * FROM products WHERE id = ?').get(id),
   findActiveById: (id) => db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(id),
   skuTaken: (sku, exceptId = 0) => !!db.prepare('SELECT 1 FROM products WHERE sku = ? AND id != ?').get(sku, exceptId),
