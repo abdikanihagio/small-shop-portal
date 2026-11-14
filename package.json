@@ -1,0 +1,14 @@
+{
+  "name": "small-shop-portal",
+  "version": "1.0.0",
+  "description": "Web portal for a small shop: products, inventory, sales and accounting",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-concurrency=1 test/"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
