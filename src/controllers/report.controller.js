@@ -19,17 +19,17 @@ module.exports = {
   reverseExpense: ({ actor, params, body }) => expenses.reverse(actor, id(params.id), reason(body.reason)),
 
   // Whatever page the user is looking at, as a file.
-  exportPdf: ({ body, res }) => {
-    const { data, filename } = exportService.pagePdf(readExportDoc(body));
+  exportPdf: async ({ body, res }) => {
+    const { data, filename } = await exportService.pagePdf(readExportDoc(body));
     sendDownload(res, data, 'application/pdf', filename);
   },
-  exportXlsx: ({ body, res }) => {
-    const { data, filename } = exportService.pageXlsx(readExportDoc(body));
+  exportXlsx: async ({ body, res }) => {
+    const { data, filename } = await exportService.pageXlsx(readExportDoc(body));
     sendDownload(res, data, XLSX_TYPE, filename);
   },
-  exportCsv: ({ params, query, res }) => {
+  exportCsv: async ({ params, query, res }) => {
     const { from, to } = dateRange(query);
-    const { data, filename } = exportService.accountingCsv(params.name, from, to);
+    const { data, filename } = await exportService.accountingCsv(params.name, from, to);
     sendCsv(res, data, filename);
   },
 };

@@ -3,20 +3,18 @@ const { PAYMENT_REFS, formatRef } = require('../config/constants');
 
 const SettingsModel = {
   // Keys starting seq_ / sys_ are internal counters and flags; they are never sent to the browser.
-  all() {
-    const rows = db.prepare('SELECT key, value FROM settings').all();
+  async all() {
+    const rows = await db.all('SELECT key, value FROM settings');
     return Object.fromEntries(rows.filter((r) => !/^(seq|sys)_/.test(r.key)).map((r) => [r.key, r.value]));
   },
 
-  set(key, value) {
-    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(value, key);
-  },
+  set: (key, value) => db.run('UPDATE settings SET value = ? WHERE key = ?', value, key),
 
   // Takes the next reference number (CUST004, RET012…); call inside a transaction.
-  nextRef(table) {
+  async nextRef(table) {
     const { counter, prefix } = PAYMENT_REFS.find((r) => r.table === table);
-    db.prepare('UPDATE settings SET value = CAST(value AS INTEGER) + 1 WHERE key = ?').run(counter);
-    return formatRef(prefix, Number(db.prepare('SELECT value FROM settings WHERE key = ?').get(counter).value));
+    const row = await db.get("UPDATE settings SET value = (value::bigint + 1)::text WHERE key = ? RETURNING value", counter);
+    return formatRef(prefix, Number(row.value));
   },
 };
 

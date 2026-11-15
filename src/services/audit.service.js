@@ -2,7 +2,7 @@
 // e.g. a failed sign-in has only an ip).
 const AuditModel = require('../models/audit.model');
 
-function record(actor, action, entity = '', entityId = '', details = '') {
+const record = (actor, action, entity = '', entityId = '', details = '') =>
   AuditModel.insert({
     userId: actor?.id ?? null,
     username: actor?.username ?? '',
@@ -12,7 +12,6 @@ function record(actor, action, entity = '', entityId = '', details = '') {
     details: typeof details === 'string' ? details : JSON.stringify(details),
     ip: actor?.ip ?? '',
   });
-}
 
 const list = ({ from, to, action }) => AuditModel.list(from, to, action);
 

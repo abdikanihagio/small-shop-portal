@@ -1,42 +1,43 @@
 const { db } = require('../config/database');
 
+// SKUs are unique ignoring upper/lower case.
 const ProductModel = {
   list: ({ includeInactive = false } = {}) =>
-    db.prepare(`SELECT * FROM products ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY name COLLATE NOCASE`).all(),
-  all: () => db.prepare('SELECT * FROM products ORDER BY name').all(),
-  findById: (id) => db.prepare('SELECT * FROM products WHERE id = ?').get(id),
-  findActiveById: (id) => db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(id),
-  skuTaken: (sku, exceptId = 0) => !!db.prepare('SELECT 1 FROM products WHERE sku = ? AND id != ?').get(sku, exceptId),
+    db.all(`SELECT * FROM products ${includeInactive ? '' : 'WHERE active = 1'} ORDER BY lower(name), id`),
+  all: () => db.all('SELECT * FROM products ORDER BY name, id'),
+  findById: (id) => db.get('SELECT * FROM products WHERE id = ?', id),
+  findActiveById: (id) => db.get('SELECT * FROM products WHERE id = ? AND active = 1', id),
+  skuTaken: async (sku, exceptId = 0) => !!(await db.get('SELECT 1 FROM products WHERE lower(sku) = lower(?) AND id != ?', sku, exceptId)),
 
   create: (p, stock) =>
-    db
-      .prepare(
-        `INSERT INTO products (sku, name, category, unit, cost_cents, price_cents, stock, reorder_level)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(p.sku, p.name, p.category, p.unit, p.cost_cents, p.price_cents, stock, p.reorder_level).lastInsertRowid,
+    db.insert(
+      `INSERT INTO products (sku, name, category, unit, cost_cents, price_cents, stock, reorder_level)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      p.sku, p.name, p.category, p.unit, p.cost_cents, p.price_cents, stock, p.reorder_level
+    ),
 
   update: (id, p, active) =>
-    db
-      .prepare('UPDATE products SET sku=?, name=?, category=?, unit=?, cost_cents=?, price_cents=?, reorder_level=?, active=? WHERE id=?')
-      .run(p.sku, p.name, p.category, p.unit, p.cost_cents, p.price_cents, p.reorder_level, active, id),
+    db.run(
+      'UPDATE products SET sku=?, name=?, category=?, unit=?, cost_cents=?, price_cents=?, reorder_level=?, active=? WHERE id=?',
+      p.sku, p.name, p.category, p.unit, p.cost_cents, p.price_cents, p.reorder_level, active, id
+    ),
 
   // Import: change details but never stock.
   updateDetails: (id, p) =>
-    db
-      .prepare('UPDATE products SET name=?, category=?, unit=?, cost_cents=?, price_cents=?, reorder_level=? WHERE id=?')
-      .run(p.name, p.category, p.unit, p.cost_cents, p.price_cents, p.reorder_level, id),
+    db.run(
+      'UPDATE products SET name=?, category=?, unit=?, cost_cents=?, price_cents=?, reorder_level=? WHERE id=?',
+      p.name, p.category, p.unit, p.cost_cents, p.price_cents, p.reorder_level, id
+    ),
 
   // Stock levels
-  addStockAtCost: (id, qty, newCost) => db.prepare('UPDATE products SET stock = stock + ?, cost_cents = ? WHERE id = ?').run(qty, newCost, id),
-  addStock: (id, qty) => db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(qty, id),
-  removeStock: (id, qty) => db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(qty, id),
-  setStock: (id, count) => db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(count, id),
+  addStockAtCost: (id, qty, newCost) => db.run('UPDATE products SET stock = stock + ?, cost_cents = ? WHERE id = ?', qty, newCost, id),
+  addStock: (id, qty) => db.run('UPDATE products SET stock = stock + ? WHERE id = ?', qty, id),
+  removeStock: (id, qty) => db.run('UPDATE products SET stock = stock - ? WHERE id = ?', qty, id),
+  setStock: (id, count) => db.run('UPDATE products SET stock = ? WHERE id = ?', count, id),
 
-  lowStock: () =>
-    db.prepare('SELECT id, sku, name, stock, reorder_level, unit FROM products WHERE active = 1 AND stock <= reorder_level ORDER BY stock').all(),
+  lowStock: () => db.all('SELECT id, sku, name, stock, reorder_level, unit FROM products WHERE active = 1 AND stock <= reorder_level ORDER BY stock, id'),
   stockSummary: () =>
-    db.prepare('SELECT COUNT(*) AS products, COALESCE(SUM(MAX(stock,0) * cost_cents),0) AS value FROM products WHERE active = 1').get(),
+    db.get('SELECT COUNT(*) AS products, COALESCE(SUM(GREATEST(stock, 0) * cost_cents), 0) AS value FROM products WHERE active = 1'),
 };
 
 module.exports = ProductModel;

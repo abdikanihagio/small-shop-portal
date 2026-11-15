@@ -8,15 +8,22 @@ const { today, monthStart } = require('../utils/dates');
 
 // Net sales exclude tax; credit sales count as revenue when made but as cash only when paid;
 // buying stock is not an expense (it becomes cost of goods when sold).
-function profitAndLoss(from, to) {
-  const s = ReportModel.salesTotals(from, to);
-  const expenses = ReportModel.expensesByCategory(from, to);
-  const purchases = ReportModel.stockPaidOnDelivery(from, to);
-  const creditSales = ReportModel.creditSales(from, to);
-  const customerPayments = ReportModel.customerPayments(from, to);
-  const supplierPayments = ReportModel.supplierPayments(from, to);
-  const shrinkage = ReportModel.adjustmentLosses(from, to);
-  const ret = ReportModel.returnTotals(from, to);
+async function profitAndLoss(from, to) {
+  const [s, expenses, purchases, creditSales, customerPayments, supplierPayments, shrinkage, ret, byMethod, creditPurchases, receivables, payables] =
+    await Promise.all([
+      ReportModel.salesTotals(from, to),
+      ReportModel.expensesByCategory(from, to),
+      ReportModel.stockPaidOnDelivery(from, to),
+      ReportModel.creditSales(from, to),
+      ReportModel.customerPayments(from, to),
+      ReportModel.supplierPayments(from, to),
+      ReportModel.adjustmentLosses(from, to),
+      ReportModel.returnTotals(from, to),
+      ReportModel.salesByMethod(from, to),
+      ReportModel.creditPurchases(from, to),
+      CustomerModel.totalReceivables(),
+      SupplierModel.totalPayables(),
+    ]);
 
   const salesCash = s.collected - creditSales;
   const netSales = s.gross_sales - s.discounts - ret.net;
@@ -48,33 +55,40 @@ function profitAndLoss(from, to) {
       credit_sales: creditSales,
       returns_to_accounts: ret.to_accounts,
       customer_payments: customerPayments,
-      by_method: ReportModel.salesByMethod(from, to),
+      by_method: byMethod,
       inventory_purchases: purchases,
-      credit_purchases: ReportModel.creditPurchases(from, to),
+      credit_purchases: creditPurchases,
       supplier_payments: supplierPayments,
       expenses_paid: totalExpenses,
       net: salesCash - ret.refunds_paid + customerPayments - purchases - supplierPayments - totalExpenses,
     },
-    receivables: CustomerModel.totalReceivables(),
-    payables: SupplierModel.totalPayables(),
+    receivables,
+    payables,
   };
 }
 
 // Month figures need "accounting"; stock value needs "costs.view".
-function dashboard(user) {
+async function dashboard(user) {
   const t = today();
-  const todayStats = ReportModel.salesOnDay(t);
-  todayStats.refunds = ReportModel.refundsOnDay(t);
-  const inv = ProductModel.stockSummary();
+  const [todayStats, refunds, inv, daily, lowStock, recent, topProducts, month] = await Promise.all([
+    ReportModel.salesOnDay(t),
+    ReportModel.refundsOnDay(t),
+    ProductModel.stockSummary(),
+    ReportModel.dailySales30(t),
+    ProductModel.lowStock(),
+    ReportModel.recentSales(),
+    ReportModel.topProductsSince(monthStart()),
+    can(user, 'accounting') ? profitAndLoss(monthStart(), t) : null,
+  ]);
   const out = {
-    today: todayStats,
-    daily: ReportModel.dailySales30(t),
-    low_stock: ProductModel.lowStock(),
-    recent: ReportModel.recentSales(),
-    top_products: ReportModel.topProductsSince(monthStart()),
+    today: { ...todayStats, refunds },
+    daily,
+    low_stock: lowStock,
+    recent,
+    top_products: topProducts,
     product_count: inv.products,
   };
-  if (can(user, 'accounting')) out.month = profitAndLoss(monthStart(), t);
+  if (month) out.month = month;
   if (can(user, 'costs.view')) out.inventory_value = inv.value;
   return out;
 }

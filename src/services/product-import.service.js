@@ -42,7 +42,7 @@ function readRows(buf, filename) {
 }
 
 // Works out what would happen to each row: new, update, skip or error.
-function analyze(buf, filename, updateExisting) {
+async function analyze(buf, filename, updateExisting) {
   const rows = readRows(buf, filename);
   const headerIdx = rows.findIndex((r) => r.some((c) => String(c).trim() !== ''));
   if (headerIdx < 0) throw bad('The file is empty');
@@ -56,7 +56,7 @@ function analyze(buf, filename, updateExisting) {
   if (colOf.name === undefined) throw bad('Could not find a "Name" column. Use the template, or name the first row\'s columns like it.');
   if (colOf.price === undefined) throw bad('Could not find a "Selling price" (or "Price") column.');
 
-  const all = ProductModel.all();
+  const all = await ProductModel.all();
   const existing = new Map(all.map((p) => [p.sku.toLowerCase(), p]));
   // Rows without a SKU are matched to an existing product by name, so importing the same file twice doesn't duplicate.
   const byName = new Map(all.map((p) => [p.name.trim().toLowerCase(), p]));
@@ -130,25 +130,33 @@ function analyze(buf, filename, updateExisting) {
 }
 
 // Returns the analysis; when commit is true, also saves new and updated products.
-function importProducts(actor, buf, { filename, updateExisting, commit }) {
+async function importProducts(actor, buf, { filename, updateExisting, commit }) {
   if (!buf.length) throw bad('Choose a file to import');
-  const result = analyze(buf, filename, updateExisting);
-  const summary = { new: 0, update: 0, skip: 0, error: 0 };
-  for (const r of result.rows) summary[r.status]++;
-  if (!commit) return { ...result, summary };
+  const run = async () => {
+    const result = await analyze(buf, filename, updateExisting);
+    const summary = { new: 0, update: 0, skip: 0, error: 0 };
+    for (const r of result.rows) summary[r.status]++;
+    return { result, summary };
+  };
+  if (!commit) {
+    const { result, summary } = await run();
+    return { ...result, summary };
+  }
 
   const cents100 = (n) => Math.round(n * 100);
-  transaction(() => {
+  // Analysed again inside the transaction, so it matches the products as they are when saving.
+  return transaction(async () => {
+    const { result, summary } = await run();
     for (const r of result.rows) {
       if (r.status === 'new') {
         const cost = cents100(r.cost ?? 0);
         const p = { sku: r.sku, name: r.name, category: r.category, unit: r.unit || 'pcs', cost_cents: cost, price_cents: cents100(r.price), reorder_level: r.reorder_level ?? 0 };
-        const id = ProductModel.create(p, r.stock ?? 0);
-        if (r.stock > 0) StockModel.addMovement({ productId: id, type: 'opening', qty: r.stock, unitCost: cost, note: 'Opening stock (import)', userId: actor.id });
+        const id = await ProductModel.create(p, r.stock ?? 0);
+        if (r.stock > 0) await StockModel.addMovement({ productId: id, type: 'opening', qty: r.stock, unitCost: cost, note: 'Opening stock (import)', userId: actor.id });
       } else if (r.status === 'update') {
         // Only overwrite fields the file actually has values for; stock is left alone.
-        const p = ProductModel.findById(r.id);
-        ProductModel.updateDetails(r.id, {
+        const p = await ProductModel.findById(r.id);
+        await ProductModel.updateDetails(r.id, {
           name: r.name || p.name,
           category: result.columns.includes('category') && r.category ? r.category : p.category,
           unit: r.unit || p.unit,
@@ -158,9 +166,9 @@ function importProducts(actor, buf, { filename, updateExisting, commit }) {
         });
       }
     }
+    await audit.record(actor, 'products.imported', 'product', '', { file: filename, update_existing: updateExisting, ...summary });
+    return { ...result, summary, committed: true };
   });
-  audit.record(actor, 'products.imported', 'product', '', { file: filename, update_existing: updateExisting, ...summary });
-  return { ...result, summary, committed: true };
 }
 
 function templateXlsx() {

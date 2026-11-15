@@ -4,6 +4,6 @@ const { parseCookies } = require('../utils/http');
 
 const sessionToken = (req) => parseCookies(req).sid || null;
 
-const authenticate = (req) => sessions.userForToken(sessionToken(req));
+const authenticate = (req) => sessions.userForToken(sessionToken(req)); // a Promise
 
 module.exports = { authenticate, sessionToken };

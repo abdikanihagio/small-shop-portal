@@ -20,9 +20,9 @@ module.exports = {
     const { from, to } = dateRange(query, { allTime: true });
     return customers.statement(id(params.id), from, to);
   },
-  customerStatementCsv: ({ params, query, res }) => {
+  customerStatementCsv: async ({ params, query, res }) => {
     const { from, to } = dateRange(query, { allTime: true });
-    const { data, filename } = exportService.customerStatementCsv(customers.statement(id(params.id), from, to));
+    const { data, filename } = exportService.customerStatementCsv(await customers.statement(id(params.id), from, to));
     sendCsv(res, data, filename);
   },
 
@@ -37,9 +37,9 @@ module.exports = {
     const { from, to } = dateRange(query, { allTime: true });
     return suppliers.statement(id(params.id), from, to);
   },
-  supplierStatementCsv: ({ params, query, res }) => {
+  supplierStatementCsv: async ({ params, query, res }) => {
     const { from, to } = dateRange(query, { allTime: true });
-    const { data, filename } = exportService.supplierStatementCsv(suppliers.statement(id(params.id), from, to));
+    const { data, filename } = exportService.supplierStatementCsv(await suppliers.statement(id(params.id), from, to));
     sendCsv(res, data, filename);
   },
 };

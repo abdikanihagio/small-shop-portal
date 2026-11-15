@@ -6,8 +6,8 @@ module.exports = {
   status: () => branding.status(),
 
   // The browser keeps a copy and asks again each time; unchanged pictures answer 304 (no download).
-  image({ req, res, params }) {
-    const row = branding.image(readKind(params.kind));
+  async image({ req, res, params }) {
+    const row = await branding.image(readKind(params.kind));
     const etag = `"${row.updated_at.replace(/\D/g, '')}"`;
     const headers = { 'Cache-Control': 'no-cache', ETag: etag };
     if (req.headers['if-none-match'] === etag) {

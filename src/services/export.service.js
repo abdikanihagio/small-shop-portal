@@ -13,21 +13,21 @@ const { notFound } = require('../utils/http-error');
 const exportFilename = (title, ext) => `${title.replace(/[^\w-]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'report'}-${today()}.${ext}`;
 
 // doc: validated by validators/export.validator readExportDoc.
-function pagePdf(doc) {
+async function pagePdf(doc) {
   const data = buildPdf({
     title: doc.title,
     subtitle: doc.subtitle,
-    shop: settings.shopName(),
+    shop: await settings.shopName(),
     generated: nowStamp(),
     sections: doc.sections.map((s) => ({ ...s, rows: s.rows.map((r) => r.map((c) => String(c.text ?? ''))) })),
   });
   return { data, filename: exportFilename(doc.title, 'pdf') };
 }
 
-function pageXlsx(doc) {
+async function pageXlsx(doc) {
   const rows = [
     [{ v: doc.title, s: 'title' }],
-    [{ v: [settings.shopName(), doc.subtitle].filter(Boolean).join('  ·  '), s: 'muted' }],
+    [{ v: [await settings.shopName(), doc.subtitle].filter(Boolean).join('  ·  '), s: 'muted' }],
     [{ v: `Generated ${nowStamp()}`, s: 'muted' }],
     [],
   ];
@@ -59,8 +59,8 @@ function pageXlsx(doc) {
 // ---- CSV exports for the accountant (Accounting → Export) ----
 
 const CSV_EXPORTS = {
-  'sales.csv': (from, to) =>
-    toCsv(ReportModel.salesForExport(from, to), [
+  'sales.csv': async (from, to) =>
+    toCsv(await ReportModel.salesForExport(from, to), [
       { label: 'Sale #', get: (r) => r.id },
       { label: 'Date', get: (r) => r.created_at },
       { label: 'Status', get: (r) => r.status },
@@ -75,8 +75,8 @@ const CSV_EXPORTS = {
       { label: 'Cashier', get: (r) => r.username },
       { label: 'Refunded (returns)', get: (r) => cents(r.returned_cents || 0) },
     ]),
-  'expenses.csv': (from, to) =>
-    toCsv(ExpenseModel.listForExport(from, to), [
+  'expenses.csv': async (from, to) =>
+    toCsv(await ExpenseModel.listForExport(from, to), [
       { label: 'Date', get: (r) => r.date },
       { label: 'Category', get: (r) => r.category },
       { label: 'Description', get: (r) => r.description },
@@ -84,8 +84,8 @@ const CSV_EXPORTS = {
       { label: 'Amount', get: (r) => cents(r.amount_cents) },
       { label: 'Status', get: (r) => (r.reversed_at ? `reversed ${r.reversed_at}: ${r.reverse_reason}` : 'ok') },
     ]),
-  'returns.csv': (from, to) =>
-    toCsv(ReportModel.returnsForExport(from, to), [
+  'returns.csv': async (from, to) =>
+    toCsv(await ReportModel.returnsForExport(from, to), [
       { label: 'Return', get: (r) => r.ref },
       { label: 'Date', get: (r) => r.created_at },
       { label: 'Sale #', get: (r) => r.sale_id },
@@ -99,8 +99,8 @@ const CSV_EXPORTS = {
       { label: 'Reason', get: (r) => r.reason },
       { label: 'By', get: (r) => r.username },
     ]),
-  'products.csv': () =>
-    toCsv(ProductModel.all(), [
+  'products.csv': async () =>
+    toCsv(await ProductModel.all(), [
       { label: 'SKU', get: (r) => r.sku },
       { label: 'Name', get: (r) => r.name },
       { label: 'Category', get: (r) => r.category },
@@ -114,10 +114,10 @@ const CSV_EXPORTS = {
     ]),
 };
 
-function accountingCsv(name, from, to) {
+async function accountingCsv(name, from, to) {
   const build = Object.hasOwn(CSV_EXPORTS, name) ? CSV_EXPORTS[name] : null;
   if (!build) throw notFound('Unknown export');
-  return { data: build(from, to), filename: `${name.replace('.csv', '')}-${from}-to-${to}.csv` };
+  return { data: await build(from, to), filename: `${name.replace('.csv', '')}-${from}-to-${to}.csv` };
 }
 
 // ---- statements ----

@@ -9,51 +9,52 @@ const { transaction } = require('../config/database');
 const { diff } = require('../utils/objects');
 const { bad, notFound } = require('../utils/http-error');
 
-function get(id) {
-  const c = CustomerModel.findWithStats(id);
+async function get(id) {
+  const c = await CustomerModel.findWithStats(id);
   if (!c) throw notFound('Customer not found');
   return c;
 }
 
 // The full list for customer managers; the till gets just enough to pick a customer.
-function list(user, { includeInactive }) {
-  const rows = CustomerModel.list({ includeInactive: includeInactive && visibility.seesCustomers(user) });
+async function list(user, { includeInactive }) {
+  const rows = await CustomerModel.list({ includeInactive: includeInactive && visibility.seesCustomers(user) });
   return rows.map((c) => visibility.customerListItem(user, c));
 }
 
-function create(actor, c) {
-  if (c.phone && CustomerModel.phoneTaken(c.phone)) throw bad('A customer with this phone number already exists');
-  const id = CustomerModel.create(c);
-  audit.record(actor, 'customer.created', 'customer', id, { name: c.name, credit_limit_cents: c.credit_limit_cents });
-  return get(id);
-}
+const create = (actor, c) =>
+  transaction(async () => {
+    if (c.phone && (await CustomerModel.phoneTaken(c.phone))) throw bad('A customer with this phone number already exists');
+    const id = await CustomerModel.create(c);
+    await audit.record(actor, 'customer.created', 'customer', id, { name: c.name, credit_limit_cents: c.credit_limit_cents });
+    return get(id);
+  });
 
-function update(actor, id, c, active) {
-  const old = get(id);
-  if (c.phone && CustomerModel.phoneTaken(c.phone, id)) throw bad('Another customer already uses this phone number');
-  CustomerModel.update(id, c, active);
-  audit.record(actor, 'customer.updated', 'customer', id, diff(old, { ...c, active }));
-  return get(id);
-}
+const update = (actor, id, c, active) =>
+  transaction(async () => {
+    const old = await get(id);
+    if (c.phone && (await CustomerModel.phoneTaken(c.phone, id))) throw bad('Another customer already uses this phone number');
+    await CustomerModel.update(id, c, active);
+    await audit.record(actor, 'customer.updated', 'customer', id, diff(old, { ...c, active }));
+    return get(id);
+  });
 
-function recordPayment(actor, id, { amount, method, note }) {
-  get(id);
-  const paymentId = transaction(() =>
-    CustomerModel.addPayment({ customerId: id, amount, method, note, userId: actor.id, ref: SettingsModel.nextRef('customer_payments') })
-  );
-  const payment = CustomerModel.findPayment(paymentId);
-  audit.record(actor, 'customer_payment.recorded', 'customer', id, { ref: payment.ref, amount_cents: amount, method });
-  return { ...get(id), payment };
-}
+const recordPayment = (actor, id, { amount, method, note }) =>
+  transaction(async () => {
+    await get(id);
+    const ref = await SettingsModel.nextRef('customer_payments');
+    const payment = await CustomerModel.findPayment(await CustomerModel.addPayment({ customerId: id, amount, method, note, userId: actor.id, ref }));
+    await audit.record(actor, 'customer_payment.recorded', 'customer', id, { ref: payment.ref, amount_cents: amount, method });
+    return { ...(await get(id)), payment };
+  });
 
 const reversePayment = (actor, customerId, paymentId, reason) => ledger.reverse(actor, 'customer_payments', paymentId, reason, customerId);
 
 // Credit sales add to the balance, payments reduce it; sales paid at the till are listed with their
 // payment so the balance is unchanged. A return takes the refund off the charges: refunded to the
 // account, what they owe goes down; refunded in cash/card/mobile, it also shows as money paid back.
-function statement(id, from, to) {
-  const customer = get(id);
-  const rows = CustomerModel.statementRows(id, from, to);
+async function statement(id, from, to) {
+  const customer = await get(id);
+  const rows = await CustomerModel.statementRows(id, from, to);
   const entries = [
     ...rows.sales.map((s) => {
       const counts = s.status === 'completed';

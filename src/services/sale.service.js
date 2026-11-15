@@ -12,19 +12,19 @@ const { safeTotal } = require('../validators/common.validator');
 const { cents } = require('../utils/csv');
 const { bad, notFound } = require('../utils/http-error');
 
-const list = (user, { from, to }) => SaleModel.list(from, to).map((s) => visibility.sale(user, s));
+const list = async (user, { from, to }) => (await SaleModel.list(from, to)).map((s) => visibility.sale(user, s));
 
-function get(user, id) {
-  const sale = SaleModel.findWithCashier(id);
+async function get(user, id) {
+  const sale = await SaleModel.findWithCashier(id);
   if (!sale) throw notFound('Sale not found');
-  sale.items = SaleModel.itemsWithReturned(id);
-  sale.returns = SaleModel.returnsWithItems(id);
+  sale.items = await SaleModel.itemsWithReturned(id);
+  sale.returns = await SaleModel.returnsWithItems(id);
   return visibility.saleDetail(user, sale);
 }
 
-function checkCreditLimit(customer, total) {
+async function checkCreditLimit(customer, total) {
   if (customer.credit_limit_cents <= 0) return;
-  const balance = CustomerModel.balance(customer.id);
+  const balance = await CustomerModel.balance(customer.id);
   if (balance + total > customer.credit_limit_cents) {
     throw bad(
       `${customer.name} would go over their credit limit of ${cents(customer.credit_limit_cents)} ` +
@@ -35,19 +35,19 @@ function checkCreditLimit(customer, total) {
 
 // sale: validated by validators/sale.validator readSale.
 function create(actor, { items, discountPercent, discountAmount, method, customerId }) {
-  const shop = settings.get();
-  const taxRate = Number(shop.tax_rate) || 0;
-  return transaction(() => {
+  return transaction(async () => {
+    const shop = await settings.get();
+    const taxRate = Number(shop.tax_rate) || 0;
     let customer = null;
     if (customerId) {
-      customer = CustomerModel.findActiveById(customerId);
+      customer = await CustomerModel.findActiveById(customerId);
       if (!customer) throw bad('Customer not found or disabled');
     }
     const lines = [];
     const wanted = new Map(); // product id → total quantity in this sale
     for (const it of items) {
       wanted.set(it.productId, (wanted.get(it.productId) || 0) + it.qty);
-      const p = ProductModel.findActiveById(it.productId);
+      const p = await ProductModel.findActiveById(it.productId);
       if (!p) throw bad('A product in this sale no longer exists');
       if (wanted.get(it.productId) > p.stock) throw bad(`Not enough stock for ${p.name} (only ${p.stock} left)`);
       // Only users allowed unlimited discounts may override the price (the validator drops it otherwise).
@@ -64,9 +64,9 @@ function create(actor, { items, discountPercent, discountAmount, method, custome
     const tax = Math.round(((subtotal - discount) * taxRate) / 100);
     const total = subtotal - discount + tax;
     const cogs = safeTotal(lines.reduce((s, l) => s + l.qty * l.p.cost_cents, 0), 'Cost of goods');
-    if (method === 'credit') checkCreditLimit(customer, total);
+    if (method === 'credit') await checkCreditLimit(customer, total);
 
-    const saleId = SaleModel.create({
+    const saleId = await SaleModel.create({
       // Only registered customers are named on a sale (free text is not accepted).
       customer: customer ? customer.name : '',
       customerId,
@@ -80,26 +80,26 @@ function create(actor, { items, discountPercent, discountAmount, method, custome
       userId: actor.id,
     });
     for (const l of lines) {
-      SaleModel.addItem(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost_cents);
-      StockModel.addMovement({ productId: l.p.id, type: 'sale', qty: -l.qty, unitCost: l.p.cost_cents, saleId, userId: actor.id, note: `Sale #${saleId}` });
-      ProductModel.removeStock(l.p.id, l.qty);
+      await SaleModel.addItem(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost_cents);
+      await StockModel.addMovement({ productId: l.p.id, type: 'sale', qty: -l.qty, unitCost: l.p.cost_cents, saleId, userId: actor.id, note: `Sale #${saleId}` });
+      await ProductModel.removeStock(l.p.id, l.qty);
     }
-    if (discount > 0) audit.record(actor, 'sale.discount', 'sale', saleId, { discount_cents: discount, discount_percent: discountPercent, subtotal_cents: subtotal });
+    if (discount > 0) await audit.record(actor, 'sale.discount', 'sale', saleId, { discount_cents: discount, discount_percent: discountPercent, subtotal_cents: subtotal });
     return { id: Number(saleId), total_cents: total };
   });
 }
 
 // Cancels a whole sale and puts every item back in stock.
 function voidSale(actor, id, reason) {
-  return transaction(() => {
-    const sale = SaleModel.findById(id);
+  return transaction(async () => {
+    const sale = await SaleModel.findById(id);
     if (!sale) throw notFound('Sale not found');
     if (sale.status === 'void') throw bad('Sale is already void');
-    if (SaleModel.hasReturns(id)) throw bad('This sale already has returns. Use Return items for the rest instead of voiding.');
-    SaleModel.markVoid(id);
-    for (const it of SaleModel.items(id)) {
-      ProductModel.addStock(it.product_id, it.qty);
-      StockModel.addMovement({
+    if (await SaleModel.hasReturns(id)) throw bad('This sale already has returns. Use Return items for the rest instead of voiding.');
+    await SaleModel.markVoid(id);
+    for (const it of await SaleModel.items(id)) {
+      await ProductModel.addStock(it.product_id, it.qty);
+      await StockModel.addMovement({
         productId: it.product_id,
         type: 'void',
         qty: it.qty,
@@ -109,7 +109,7 @@ function voidSale(actor, id, reason) {
         note: `Void sale #${id}${reason ? ': ' + reason : ''}`,
       });
     }
-    audit.record(actor, 'sale.voided', 'sale', id, { total_cents: sale.total_cents, reason });
+    await audit.record(actor, 'sale.voided', 'sale', id, { total_cents: sale.total_cents, reason });
     return { ok: true };
   });
 }

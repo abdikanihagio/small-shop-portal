@@ -10,16 +10,16 @@ const { isLocalRequest } = require('../utils/http');
 const { setSessionCookie, clearSessionCookie } = require('../utils/session-cookie');
 
 module.exports = {
-  setupStatus: ({ req }) => ({
-    needsSetup: auth.needsSetup(),
+  setupStatus: async ({ req }) => ({
+    needsSetup: await auth.needsSetup(),
     // The owner account can only be created from the shop computer itself.
     setupAllowed: isLocalRequest(req),
   }),
 
   async setup({ req, res, actor, body }) {
-    auth.assertCanSetUp(isLocalRequest(req));
+    await auth.assertCanSetUp(isLocalRequest(req));
     const username = readUsername(body.username);
-    const password = settings.checkPassword(body.password, username, body.shop_name || settings.shopName());
+    const password = await settings.checkPassword(body.password, username, body.shop_name || (await settings.shopName()));
     const name = str(body.name, 'Name');
     const shopName = body.shop_name ? str(body.shop_name, 'Shop name') : '';
     const token = await auth.createOwner(actor.ip, { username, name, password, shopName });
@@ -34,19 +34,19 @@ module.exports = {
     return { ok: true };
   },
 
-  verifyLogin({ res, actor, body }) {
-    const { token, recoveryCodesLeft } = auth.verifyLogin(actor.ip, String(body.ticket || ''), body.code);
+  async verifyLogin({ res, actor, body }) {
+    const { token, recoveryCodesLeft } = await auth.verifyLogin(actor.ip, String(body.ticket || ''), body.code);
     setSessionCookie(res, token);
     return { ok: true, recovery_codes_left: recoveryCodesLeft };
   },
 
-  logout({ req, res }) {
-    sessions.end(sessionToken(req));
+  async logout({ req, res }) {
+    await sessions.end(sessionToken(req));
     clearSessionCookie(res);
     return { ok: true };
   },
 
-  me: ({ user }) => ({ user, settings: settings.get() }),
+  me: async ({ user }) => ({ user, settings: await settings.get() }),
 
   changePassword: ({ req, actor, body }) => auth.changePassword(actor, String(body.current ?? ''), body.password, sessionToken(req)),
   signOutOtherDevices: ({ req, actor }) => auth.signOutOtherDevices(actor, sessionToken(req)),

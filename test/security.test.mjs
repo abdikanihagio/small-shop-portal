@@ -10,7 +10,6 @@ import path from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -18,7 +17,7 @@ const { readXlsx, writeZip } = require('../lib/xlsx.js');
 const totp = require('../lib/totp.js');
 const qr = require('../lib/qr.js');
 import { decodeQr } from './qr-decode.mjs';
-import { ROOT, startServer, request, sid } from './helpers.mjs';
+import { ROOT, startServer, sql, request, sid } from './helpers.mjs';
 
 let S; // main test server
 // base: another test server instead of the main one.
@@ -64,9 +63,9 @@ test('SQL injection probes and path traversal are rejected (regression)', async 
   assert.equal((await call('GET', "/api/sales?from=2026-01-01'%20OR%201=1--", { cookie: admin })).status, 400);
   assert.equal((await call('GET', '/api/customers/1%20OR%201=1', { cookie: admin })).status, 400);
   assert.equal((await call('POST', '/api/login', { body: { username: "' OR '1'='1", password: "' OR '1'='1" } })).status, 401);
-  for (const p of ['/../server.js', '/%2e%2e/server.js', '/..%5cserver.js', '/../data/shop.db']) {
+  for (const p of ['/../server.js', '/%2e%2e/server.js', '/..%5cserver.js', '/../.env', '/../docker-compose.yml']) {
     const r = await call('GET', p);
-    assert.ok(!/createServer|DatabaseSync|SQLite format/.test(r.text), p);
+    assert.ok(!/createServer|PGPASSWORD|POSTGRES_PASSWORD/.test(r.text), p);
   }
 });
 
@@ -210,10 +209,9 @@ test('M5: important actions are written to an append-only audit log that staff c
   assert.deepEqual(JSON.parse(price.details).price_cents, { from: 1000, to: 1100 });
   assert.equal((await call('GET', '/api/audit', { cookie: staff })).status, 403);
 
-  const db = new DatabaseSync(path.join(S.dataDir, 'shop.db'));
-  assert.throws(() => db.exec('DELETE FROM audit_log'), /append-only/);
-  assert.throws(() => db.exec("UPDATE audit_log SET action = 'x'"), /append-only/);
-  db.close();
+  await assert.rejects(sql(S.database, 'DELETE FROM audit_log'), /append-only/);
+  await assert.rejects(sql(S.database, "UPDATE audit_log SET action = 'x'"), /append-only/);
+  await assert.rejects(sql(S.database, 'TRUNCATE audit_log'), /append-only/);
 });
 
 // ---------- headers, cookies, robustness ----------
@@ -273,30 +271,12 @@ test('L5: the movements "limit" parameter is validated', async () => {
 test('L6: the database stores only hashes of sign-in tokens, and idle sessions expire', async () => {
   const cookie = await login(STAFF.username, STAFF.password);
   const raw = cookie.split('=')[1];
-  const db = new DatabaseSync(path.join(S.dataDir, 'shop.db'));
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions WHERE token = ?').get(raw).n, 0, 'raw token not stored');
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions WHERE token = ?').get(crypto.createHash('sha256').update(raw).digest('hex')).n, 1);
+  const hash = crypto.createHash('sha256').update(raw).digest('hex');
+  assert.equal((await sql(S.database, 'SELECT COUNT(*) AS n FROM sessions WHERE token = $1', [raw]))[0].n, '0', 'raw token not stored');
+  assert.equal((await sql(S.database, 'SELECT COUNT(*) AS n FROM sessions WHERE token = $1', [hash]))[0].n, '1');
   assert.equal((await call('GET', '/api/me', { cookie })).status, 200);
-  db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?').run(Date.now() - 13 * 3600e3, crypto.createHash('sha256').update(raw).digest('hex'));
-  db.close();
+  await sql(S.database, 'UPDATE sessions SET last_seen = $1 WHERE token = $2', [Date.now() - 13 * 3600e3, hash]);
   assert.equal((await call('GET', '/api/me', { cookie })).status, 401, 'idle for 13 hours → signed out');
-});
-
-test('L6: sessions created before the upgrade keep working after it (tokens hashed in place)', async () => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shop-old-'));
-  const old = new DatabaseSync(path.join(dataDir, 'shop.db'));
-  old.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT NOT NULL DEFAULT '',
-      role TEXT NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT '');
-    CREATE TABLE sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL);
-    INSERT INTO users (id, username, role, password_hash, salt) VALUES (1, 'owner', 'admin', 'aa', 'bb');`);
-  const token = 'a'.repeat(64);
-  old.prepare('INSERT INTO sessions VALUES (?, 1, ?)').run(token, Date.now() + 86400e3);
-  old.close();
-  const upgraded = await startServer({ dataDir });
-  const r = await call('GET', '/api/me', { base: upgraded.base, cookie: `sid=${token}` });
-  assert.equal(r.status, 200, 'old sign-in still valid');
-  assert.equal(r.json.user.username, 'owner');
-  assert.equal(r.json.user.is_owner, 1, 'existing earliest admin becomes the owner');
 });
 
 test('L7: easy-to-guess passwords are refused for new and changed passwords', async () => {
@@ -559,7 +539,7 @@ test('2FA: wrong codes are limited per sign-in attempt; admin and shop-PC resets
   assert.ok(sid(b2) && !b2.json.two_step);
 
   // Last-resort reset on the shop computer.
-  const out = spawnSync(process.execPath, ['scripts/reset-2fa.js', 'chris'], { cwd: ROOT, env: { ...process.env, DATA_DIR: t.dataDir } });
+  const out = spawnSync(process.execPath, ['scripts/reset-2fa.js', 'chris'], { cwd: ROOT, env: t.env });
   assert.equal(out.status, 0, out.stderr?.toString());
   const c2 = await call('POST', '/api/login', { ...B, body: { username: 'chris', password: 'blue tiger lamp river' } });
   assert.ok(sid(c2) && !c2.json.two_step);

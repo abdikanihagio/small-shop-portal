@@ -10,9 +10,9 @@ const { bad, notFound } = require('../utils/http-error');
 
 // Works out a return's refund as its exact share of what the customer paid. Shares are computed on a
 // running total, so however many partial returns are made, together they add up to the sale exactly.
-function computeReturn(sale, { items, refundMethod }) {
+async function computeReturn(sale, { items, refundMethod }) {
   if (sale.status !== 'completed') throw bad('Only completed sales can have items returned');
-  const saleItems = SaleModel.itemsWithReturned(sale.id);
+  const saleItems = await SaleModel.itemsWithReturned(sale.id);
   const lines = [];
   for (const it of items) {
     const si = saleItems.find((x) => x.id === it.saleItemId);
@@ -50,10 +50,10 @@ function computeReturn(sale, { items, refundMethod }) {
 // request: validated by validators/sale.validator readReturn. With preview, nothing is saved.
 function createReturn(actor, saleId, request) {
   const { reason } = request;
-  return transaction(() => {
-    const sale = SaleModel.findById(saleId);
+  return transaction(async () => {
+    const sale = await SaleModel.findById(saleId);
     if (!sale) throw notFound('Sale not found');
-    const r = computeReturn(sale, request);
+    const r = await computeReturn(sale, request);
     const summary = {
       refund_method: r.method,
       subtotal_cents: r.subtotal_cents,
@@ -64,8 +64,8 @@ function createReturn(actor, saleId, request) {
     if (request.preview) return summary;
     if (!reason) throw bad('Reason is required');
 
-    const ref = SettingsModel.nextRef('returns');
-    const returnId = SaleModel.createReturn({
+    const ref = await SettingsModel.nextRef('returns');
+    const returnId = await SaleModel.createReturn({
       ref,
       saleId,
       customerId: sale.customer_id,
@@ -80,11 +80,11 @@ function createReturn(actor, saleId, request) {
       userId: actor.id,
     });
     for (const l of r.lines) {
-      SaleModel.addReturnItem(returnId, l.si, l.qty, !l.damaged);
+      await SaleModel.addReturnItem(returnId, l.si, l.qty, !l.damaged);
       if (l.damaged) continue; // written off, not restocked
       // Back on the shelf at the cost it was sold at (keeps the average cost honest).
-      inventory.addStockAtCost(ProductModel.findById(l.si.product_id), l.qty, l.si.cost_cents);
-      StockModel.addMovement({
+      await inventory.addStockAtCost(await ProductModel.findById(l.si.product_id), l.qty, l.si.cost_cents);
+      await StockModel.addMovement({
         productId: l.si.product_id,
         type: 'return',
         qty: l.qty,
@@ -95,7 +95,7 @@ function createReturn(actor, saleId, request) {
         note: `${ref} from sale #${saleId}${reason ? ': ' + reason : ''}`,
       });
     }
-    audit.record(actor, 'sale.returned', 'sale', saleId, {
+    await audit.record(actor, 'sale.returned', 'sale', saleId, {
       ref,
       ...summary,
       items: r.lines.map((l) => `${l.qty} × ${l.si.name}${l.damaged ? ' (damaged)' : ''}`).join(', '),

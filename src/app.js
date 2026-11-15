@@ -16,7 +16,7 @@ function createApp() {
 
   async function handleApi(req, res, url) {
     const { route, params } = router.match(req.method, url.pathname);
-    const user = authenticate(req);
+    const user = await authenticate(req);
     authorize(route.access, user);
     requestGuard(req, route);
     const body = !['POST', 'PUT'].includes(req.method) ? {} : route.raw ? await readRaw(req) : await readJson(req);

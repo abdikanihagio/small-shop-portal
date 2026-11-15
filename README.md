@@ -1,15 +1,32 @@
 # Small Shop Portal
 
 A web portal for running a small shop: products, inventory, sales (point of sale) and accounting.
-No installs or external services needed — just Node.js.
+Runs on Node.js with a PostgreSQL database (started in Docker on this computer).
 
 ## Run it
 
-Requires Node.js 22.13 or newer (it uses Node's built-in SQLite).
+Requires Node.js 22.13 or newer and Docker Desktop.
 
-```bash
-npm start
-```
+1. **Database settings.** Put the PostgreSQL user and a long random password in `.env` (copy `.env.example`;
+   `PGPASSWORD` must be set). `.env` is private: it is never committed.
+2. **Start PostgreSQL** (once; it starts again with Docker Desktop):
+
+   ```bash
+   docker compose up -d
+   ```
+
+   It listens on `127.0.0.1` only (port `PGPORT`, 5434 by default here), so other computers cannot reach the database.
+3. **Install and start the portal:**
+
+   ```bash
+   npm install
+   ```
+
+   ```bash
+   npm start
+   ```
+
+If the portal says it cannot connect to PostgreSQL, Docker Desktop or the database container is not running.
 
 Open http://localhost:3000 **on this computer**. The first visit asks you to create the owner (admin) account
 (for safety this only works on the computer running the portal).
@@ -87,13 +104,20 @@ staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `T
 
 ## Data & backups
 
-All data lives in `data/shop.db` (SQLite). Back up by copying the `data` folder while the server is stopped.
-Set `DATA_DIR` to store it elsewhere.
+All shop data lives in PostgreSQL (the `shop-pgdata` Docker volume). Back up with:
+
+```bash
+docker compose exec -T db pg_dump -U shop -d shop -Fc > shop-backup.dump
+```
+
+Restore into an empty database with `pg_restore`. The `data` folder (`DATA_DIR`) now only holds HTTPS certificate files.
 
 ## For developers: how the code is organised
 
-No dependencies — only Node.js built-ins (`node:http`, `node:sqlite`, `node:crypto`). Settings can come from
-environment variables or a `.env` file (see `.env.example`).
+One dependency: `pg`, the PostgreSQL driver. Everything else uses Node.js built-ins (`node:http`, `node:crypto`).
+Settings can come from environment variables or a `.env` file (see `.env.example`). Models write SQL with `?`
+placeholders and `await db.get / all / run / insert`; `transaction(fn)` runs fn's queries on one connection, one
+transaction at a time, so two tills can never sell the last item twice.
 
 ```
 server.js                 starts the web server (HTTP or HTTPS) and shuts down cleanly
@@ -104,13 +128,14 @@ src/
   routes/                 every endpoint: method, path, who may call it, which controller handles it
   controllers/            HTTP in/out only: read params/query/body, call a service, set cookies or send files
   services/               business rules: sales, returns, stock, accounts, reports, sign-in, roles, audit log
-  models/                 all SQL, one file per area; schema.js creates and upgrades the tables
+  models/                 all SQL, one file per area; schema.js creates the PostgreSQL tables
   validators/             turn request input into clean values or a clear 400 error
   middleware/             authentication, authorization, request guard, security headers, static files, errors
   utils/                  small shared helpers (HTTP, CSV, dates, hashing, cookies)
 lib/                      self-contained file formats: Excel, PDF, QR codes, authenticator codes
 scripts/                  HTTPS certificate helper, two-step login reset
-test/                     npm test (starts its own portal on a temporary database)
+test/                     npm test (starts its own portals, each on a temporary PostgreSQL database)
+docker-compose.yml        the PostgreSQL container
 ```
 
 Rules: controllers never touch the database; services never touch `req`/`res`; SQL lives only in `models/`.
