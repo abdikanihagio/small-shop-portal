@@ -33,16 +33,16 @@ staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `T
 | Area | Features |
 |---|---|
 | **Dashboard** | Today's sales, month sales / gross profit / net profit, stock value, low-stock alerts, 30-day sales chart, top products, recent sales |
-| **New Sale** | Touch-friendly POS: search or scan SKU (Enter adds), cart with quantities, discount, automatic tax, payment method (cash/card/mobile/credit), printable receipt |
-| **Sales** | History by date range, sale details, void a whole sale, CSV export |
+| **Pos Sales** | Touch-friendly POS: search or scan SKU (Enter adds), cart with quantities, discount, automatic tax, payment method (cash/card/mobile/credit), printable receipt |
+| **Sales** | History by date range, sale details, void a whole sale, CSV export. **New sale**: an invoice-style form for entering a sale at a desk (customer, searchable product lines, quantity, price, discount, payment); it saves like a till sale |
 | **Returns** | From a sale's details: **Return items** — choose how many of each item come back (several partial returns allowed). The refund is the exact share of what was paid, including discount and tax. Refund in cash/card/mobile, or off the customer's account (automatic for credit sales). Items go back into stock unless marked damaged (written off). Numbered return receipts (RET001…), shown in P&L, cash flow, statements, the Activity log and a Returns CSV. Owners/admins only. |
 | **Customers** | Register credit customers (name, phone, ID number, address, credit limit). Sell on credit at the till (credit limit is enforced), record payments, see what each customer owes, and a statement of every transaction with running balance — printable and exportable to CSV |
 | **Suppliers** | Register suppliers (contact, phone, tax/reg. no.). Receive stock from a supplier paid on the spot or on credit, record payments to them, see what you owe each one, and a statement of every delivery and payment with running balance — printable and exportable to CSV |
-| **Import / export** | Import many products at once from Excel (.xlsx) or CSV, with a downloadable template and a preview before anything is saved. Every page (except New Sale) has an **Export** menu that downloads what the page shows, with its current filters, as a PDF or Excel file |
+| **Import / export** | Import many products at once from Excel (.xlsx) or CSV, with a downloadable template and a preview before anything is saved. Every page (except Pos Sales) has an **Export** menu that downloads what the page shows, with its current filters, as a PDF or Excel file |
 | **Products** | Add/edit products with SKU, category, unit, cost and selling price, margin, reorder level, deactivate |
 | **Inventory** | Stock levels, receive stock from suppliers (updates weighted average cost), adjust counts (damage, loss, recount), full movement history |
 | **Accounting** | Profit & loss statement, cash flow, sales by payment method, expense tracking by category, sales-tax collected, CSV exports for your accountant |
-| **Settings** | Shop name, currency, tax/VAT rate, maximum staff discount, two-step login, password changes, sign out other devices |
+| **Settings** | Shop name, currency, tax/VAT rate, maximum staff discount, **logo & browser icon** (upload PNG/JPEG/WebP/SVG/GIF; the logo shows on the sign-in page, the menu, receipts and statements; pictures are resized and kept in the shop database, so backups include them), two-step login, password changes, sign out other devices |
 | **Users & roles** | Admins only, in its own menu item: staff accounts (add, change role, disable, reset password or two-step login) and **Roles & permissions** |
 | **Activity log** | Owner-only, append-only record of sign-ins (and failed ones), payments, reversals, voids, discounts, price changes, stock changes, user and settings changes |
 

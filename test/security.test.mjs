@@ -3,14 +3,13 @@
 // so real shop data is never touched.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequire } from 'node:module';
 
@@ -19,50 +18,11 @@ const { readXlsx, writeZip } = require('../lib/xlsx.js');
 const totp = require('../lib/totp.js');
 const qr = require('../lib/qr.js');
 import { decodeQr } from './qr-decode.mjs';
-
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const servers = [];
-
-async function startServer(extraEnv = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shop-test-'));
-  const port = 40000 + Math.floor(Math.random() * 20000);
-  const child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ...extraEnv } });
-  servers.push({ child, dataDir });
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('server did not start')), 10000);
-    child.stdout.on('data', (d) => d.toString().includes('running at') && (clearTimeout(t), resolve()));
-    child.on('exit', (code) => reject(new Error('server exited ' + code)));
-  });
-  return { port, dataDir, base: `http://127.0.0.1:${port}` };
-}
-
-after(() => {
-  for (const s of servers) {
-    s.child.kill();
-    try {
-      fs.rmSync(s.dataDir, { recursive: true, force: true });
-    } catch {}
-  }
-});
+import { ROOT, startServer, request, sid } from './helpers.mjs';
 
 let S; // main test server
-// Like the portal page: changes carry the X-Requested-With header (portalHeader: false to leave it out).
-const call = async (method, p, { cookie, body, type = 'application/json', base = S.base, portalHeader = true, origin } = {}) => {
-  const headers = {};
-  if (cookie) headers.Cookie = cookie;
-  if (body !== undefined) headers['Content-Type'] = type;
-  if (portalHeader && method !== 'GET') headers['X-Requested-With'] = 'shop-portal';
-  if (origin) headers.Origin = origin;
-  const t = performance.now();
-  const r = await fetch(base + p, { method, headers, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
-  const text = await r.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {}
-  return { status: r.status, json, text, headers: r.headers, ms: performance.now() - t };
-};
-const sid = (r) => (r.headers.get('set-cookie') || '').match(/sid=[0-9a-f]+/)?.[0];
+// base: another test server instead of the main one.
+const call = (method, p, { base = S.base, ...opts } = {}) => request(base, method, p, opts);
 const login = async (username, password) => sid(await call('POST', '/api/login', { body: { username, password } }));
 
 const OWNER = { username: 'owner', password: 'Copper#Lantern2026' };
@@ -332,14 +292,8 @@ test('L6: sessions created before the upgrade keep working after it (tokens hash
   const token = 'a'.repeat(64);
   old.prepare('INSERT INTO sessions VALUES (?, 1, ?)').run(token, Date.now() + 86400e3);
   old.close();
-  const port = 40000 + Math.floor(Math.random() * 20000);
-  const child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir } });
-  servers.push({ child, dataDir });
-  await new Promise((res, rej) => {
-    child.stdout.on('data', (d) => d.toString().includes('running at') && res());
-    child.on('exit', (c) => rej(new Error('exit ' + c)));
-  });
-  const r = await call('GET', '/api/me', { base: `http://127.0.0.1:${port}`, cookie: `sid=${token}` });
+  const upgraded = await startServer({ dataDir });
+  const r = await call('GET', '/api/me', { base: upgraded.base, cookie: `sid=${token}` });
   assert.equal(r.status, 200, 'old sign-in still valid');
   assert.equal(r.json.user.username, 'owner');
   assert.equal(r.json.user.is_owner, 1, 'existing earliest admin becomes the owner');
@@ -625,7 +579,7 @@ test('H2: with a certificate the portal serves HTTPS, Secure cookies and HSTS', 
   const cert = path.join(certDir, 'cert.pem');
   const gen = spawnSync(openssl, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost']);
   assert.equal(gen.status, 0, gen.stderr?.toString());
-  const tls = await startServer({ TLS_CERT: cert, TLS_KEY: key });
+  const tls = await startServer({ env: { TLS_CERT: cert, TLS_KEY: key } });
   const res = await new Promise((resolve, reject) => {
     const body = JSON.stringify({ username: 'o', password: 'Owner#Pass2026' });
     const req = https.request(

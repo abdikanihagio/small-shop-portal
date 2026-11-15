@@ -8,6 +8,7 @@ const ROUTE_FILES = [
   require('./sale.routes'),
   require('./party.routes'),
   require('./report.routes'),
+  require('./branding.routes'),
 ];
 
 function buildRouter() {

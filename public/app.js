@@ -1,7 +1,7 @@
 // Small Shop Portal front-end. Plain JavaScript, hash-based routing.
 'use strict';
 
-const state = { user: null, settings: {}, cart: [], route: '' };
+const state = { user: null, settings: {}, branding: {}, cart: [], route: '' };
 
 // ---------- utilities ----------
 
@@ -16,8 +16,18 @@ function esc(v) {
 // other websites from submitting forms to the portal in a signed-in browser).
 const PORTAL_HEADER = { 'X-Requested-With': 'shop-portal' };
 
+// fetch(), but when the portal server can't be reached (stopped, or the network is down) the error
+// says so in plain words instead of the browser's "Failed to fetch".
+async function portalFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error("Can't reach the shop portal. Check that it is running on the shop computer, then try again.");
+  }
+}
+
 async function api(method, url, body) {
-  const res = await fetch(url, {
+  const res = await portalFetch(url, {
     method,
     headers: { ...PORTAL_HEADER, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
@@ -348,7 +358,7 @@ function pageExportData() {
 async function exportPage(kind) {
   const data = pageExportData();
   if (!data.sections.length) return toast('Nothing on this page to export', 'error');
-  const res = await fetch(`/api/export/${kind}`, { method: 'POST', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const res = await portalFetch(`/api/export/${kind}`, { method: 'POST', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
   if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'Export failed', 'error');
   const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || `export.${kind}`;
   const url = URL.createObjectURL(await res.blob());
@@ -360,12 +370,11 @@ async function exportPage(kind) {
   toast(`Downloaded ${name}`);
 }
 
-const NO_EXPORT = new Set(['sell']);
-
 // Pages re-render their header often (filters, tabs), so the menu is re-added whenever it goes missing.
+// Data-entry pages (Pos Sales, New sale) mark their header data-no-export.
 function ensureExportMenu() {
   const head = $('#page .page-head');
-  if (!head || NO_EXPORT.has(state.route) || $('.export-menu', head)) return;
+  if (!head || head.hasAttribute('data-no-export') || $('.export-menu', head)) return;
   const menu = document.createElement('details');
   menu.className = 'export-menu';
   menu.innerHTML = `<summary class="btn">Export ▾</summary>
@@ -375,6 +384,8 @@ function ensureExportMenu() {
     b.disabled = true;
     try {
       await exportPage(b.dataset.exp);
+    } catch (err) {
+      toast(err.message, 'error');
     } finally {
       b.disabled = false;
     }
@@ -394,6 +405,37 @@ document.addEventListener('click', (e) => {
   for (const m of $$('.export-menu[open]')) if (!m.contains(e.target)) m.open = false;
 });
 
+// ---------- logo & icon ----------
+
+// Address of the shop's uploaded logo / icon (Settings → Logo & icon), or null. "v" makes the
+// browser fetch the new picture after a change.
+const brandUrl = (kind) => (state.branding?.[kind] ? `/api/branding/${kind}?v=${encodeURIComponent(state.branding[kind])}` : null);
+
+// The shop's logo, or the default bag mark.
+function brandMark(alt = '') {
+  const url = brandUrl('logo');
+  return url ? `<img class="brand-img" src="${url}" alt="${esc(alt)}">` : `<div class="brand-logo">${icon('bag')}</div>`;
+}
+
+// Logo line at the top of receipts and printed statements (nothing if no logo).
+const printLogo = () => (brandUrl('logo') ? `<div class="c print-logo"><img src="${brandUrl('logo')}" alt=""></div>` : '');
+
+// Browser tab icon: the uploaded icon, else the logo, else the built-in one.
+function applyFavicon() {
+  const link = $('link[rel="icon"]');
+  if (!link.dataset.builtin) link.dataset.builtin = link.href;
+  link.href = brandUrl('icon') || brandUrl('logo') || link.dataset.builtin;
+}
+
+async function loadBranding() {
+  try {
+    state.branding = await api('GET', '/api/branding');
+  } catch {
+    state.branding = {};
+  }
+  applyFavicon();
+}
+
 // ---------- auth screens ----------
 
 async function renderAuth() {
@@ -403,7 +445,7 @@ async function renderAuth() {
   if (needsSetup && !setupAllowed) {
     $('#app').innerHTML = `
       <div class="auth"><div class="card">
-        <div class="brand-logo">${icon('bag')}</div>
+        ${brandMark('Shop logo')}
         <h1>Shop not set up yet</h1>
         <p class="muted">For safety, the owner account can only be created on the computer running the portal.
           Open <strong>http://localhost:${esc(location.port || '80')}</strong> on that computer to finish setup.</p>
@@ -413,7 +455,7 @@ async function renderAuth() {
   $('#app').innerHTML = `
     <div class="auth">
       <form class="card" novalidate>
-        <div class="brand-logo">${icon('bag')}</div>
+        ${brandMark('Shop logo')}
         <h1>${needsSetup ? 'Set up your shop' : 'Sign in'}</h1>
         <p class="muted">${needsSetup ? 'Create the owner (admin) account to get started.' : 'Welcome back. Sign in to manage your shop.'}</p>
         <div class="error-msg hidden"></div>
@@ -447,7 +489,7 @@ function renderTwoStep(ticket) {
   $('#app').innerHTML = `
     <div class="auth">
       <form class="card" novalidate>
-        <div class="brand-logo">${icon('bag')}</div>
+        ${brandMark('Shop logo')}
         <h1>Two-step login</h1>
         <p class="muted" id="ts-help"></p>
         <div class="error-msg hidden"></div>
@@ -504,7 +546,7 @@ function renderTwoStep(ticket) {
 
 const PAGES = {
   dashboard: { title: 'Dashboard', render: pageDashboard },
-  sell: { title: 'New Sale', render: pageSell, perms: ['sell'] },
+  sell: { title: 'Pos Sales', render: pageSell, perms: ['sell'] },
   sales: { title: 'Sales', render: pageSales, perms: ['sales.view'] },
   customers: { title: 'Customers', render: pageCustomers, perms: ['customers.manage'] },
   suppliers: { title: 'Suppliers', render: pageSuppliers, perms: ['suppliers.manage'] },
@@ -525,7 +567,7 @@ function renderShell() {
     <div class="shell">
       <div class="nav-backdrop"></div>
       <aside class="sidebar">
-        <div class="brand"><div class="brand-logo">${icon('bag')}</div><span>${esc(state.settings.shop_name)}</span></div>
+        <div class="brand">${brandMark()}<span>${esc(state.settings.shop_name)}</span></div>
         <nav class="nav">${links}</nav>
         <div class="sidebar-foot">
           <div><strong>${esc(state.user.name || state.user.username)}</strong></div>
@@ -534,7 +576,7 @@ function renderShell() {
         </div>
       </aside>
       <div>
-        <div class="mobile-bar"><button class="icon-btn" id="menu-btn" aria-label="Menu">${icon('menu', 22)}</button>${esc(state.settings.shop_name)}</div>
+        <div class="mobile-bar"><button class="icon-btn" id="menu-btn" aria-label="Menu">${icon('menu', 22)}</button>${brandUrl('logo') ? brandMark() : ''}${esc(state.settings.shop_name)}</div>
         <main class="main" id="page"></main>
       </div>
     </div>`;
@@ -569,6 +611,7 @@ async function router() {
 }
 
 async function boot() {
+  await loadBranding();
   try {
     const me = await api('GET', '/api/me');
     state.user = me.user;
@@ -610,7 +653,7 @@ async function pageDashboard(page) {
   const m = d.month;
   const kpi = (label, value, sub = '') => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
   page.innerHTML = `
-    <div class="page-head"><h1>Dashboard</h1>${can('sell') ? `<a class="btn primary" href="#/sell">${icon('sell', 16)} New sale</a>` : ''}</div>
+    <div class="page-head"><h1>Dashboard</h1>${can('sell') ? `<a class="btn primary" href="#/sell">${icon('sell', 16)} Pos Sales</a>` : ''}</div>
     <div class="grid kpis">
       ${kpi("Today's sales", money(d.today.total - (d.today.refunds || 0)), `${d.today.count} transaction${d.today.count === 1 ? '' : 's'}${d.today.refunds ? ` · ${money(d.today.refunds)} refunded` : ''}`)}
       ${m ? kpi('Sales this month', money(m.net_sales), `${m.sales_count} sales`) : ''}
@@ -642,16 +685,171 @@ async function pageDashboard(page) {
 
 // ---------- point of sale ----------
 
+// ---------- shared by Pos Sales and New sale ----------
+
+const SALE_PAYMENT_OPTIONS =
+  '<option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile money</option><option value="credit">On credit (pay later)</option>';
+
+// Paying or receiving money outside a sale (account payments, deliveries, expenses).
+const PAYMENT_OPTIONS = '<option value="cash">Cash</option><option value="bank">Bank transfer</option><option value="mobile">Mobile money</option><option value="card">Card</option>';
+
+const customerOptions = (customers) =>
+  '<option value="">Walk-in customer</option>' +
+  customers.map((c) => `<option value="${c.id}">${esc(c.name)}${c.phone ? ` · ${esc(c.phone)}` : ''}</option>`).join('');
+
+// Same rules the server applies: discount as money or %, tax on the discounted amount, and a cap on
+// discounts for roles without "discount.unlimited".
+function saleTotals(subtotal, discount) {
+  const taxRate = Number(state.settings.tax_rate) || 0;
+  const disc = discount.type === 'percent'
+    ? Math.round((subtotal * Math.min(discount.value, 100)) / 100)
+    : Math.min(Math.round(discount.value * 100), subtotal);
+  const tax = Math.round(((subtotal - disc) * taxRate) / 100);
+  const maxPct = Number(state.settings.max_staff_discount ?? 10);
+  const overLimit = !can('discount.unlimited') && disc > 0 && disc * 100 > subtotal * maxPct;
+  const html = `
+    <div><span class="muted">Subtotal</span><span class="num">${money(subtotal)}</span></div>
+    ${disc ? `<div><span class="muted">Discount${discount.type === 'percent' ? ` (${Math.min(discount.value, 100)}%)` : ''}</span><span class="num">−${money(disc)}</span></div>` : ''}
+    ${taxRate ? `<div><span class="muted">Tax (${taxRate}%)</span><span class="num">${money(tax)}</span></div>` : ''}
+    <div class="grand"><span>Total</span><span class="num">${money(subtotal - disc + tax)}</span></div>
+    ${overLimit ? `<div class="neg-num" style="font-size:13px">Discount is over the ${maxPct}% staff limit.</div>` : ''}`;
+  return { total: subtotal - disc + tax, overLimit, html };
+}
+
+const discountFieldHtml = () => `
+  <div class="field" style="margin:0"><label>Discount${can('discount.unlimited') ? '' : ` (max ${esc(state.settings.max_staff_discount ?? '10')}%)`}</label>
+    <div class="discount-field">
+      <input name="discount" type="number" min="0" step="0.01" value="0" aria-label="Discount">
+      <input type="hidden" name="discount_type" value="amount">
+      <div class="seg" role="group" aria-label="Discount type">
+        <button type="button" data-dt="amount" class="active" title="Money amount">${esc(currencySymbol())}</button>
+        <button type="button" data-dt="percent" title="Percentage">%</button>
+      </div>
+    </div>
+  </div>`;
+
+// Wires the discount field in `form`; returns the live { value, type }.
+function bindDiscountField(form, onChange) {
+  const discount = { value: 0, type: 'amount' };
+  const input = $('[name=discount]', form);
+  input.oninput = () => {
+    discount.value = Math.max(0, Number(input.value) || 0);
+    if (discount.type === 'percent' && discount.value > 100) {
+      discount.value = 100;
+      input.value = 100;
+    }
+    onChange();
+  };
+  // Switching between money and % clears the value so 10 (money) never silently becomes 10%.
+  $$('[data-dt]', form).forEach((b) => (b.onclick = () => {
+    if (discount.type === b.dataset.dt) return;
+    discount.type = b.dataset.dt;
+    $('[name=discount_type]', form).value = discount.type;
+    $$('[data-dt]', form).forEach((x) => x.classList.toggle('active', x === b));
+    input.max = discount.type === 'percent' ? '100' : '';
+    input.step = discount.type === 'percent' ? '0.5' : '0.01';
+    input.value = 0;
+    discount.value = 0;
+    onChange();
+    input.select();
+  }));
+  return discount;
+}
+
+// Under the customer picker: what they owe, and whether a sale of `total` fits their credit limit.
+// Returns true when the server would refuse the sale (credit without a customer, or over the limit).
+function drawCustomerCredit(info, customer, onCredit, total) {
+  if (!customer) {
+    info.classList.toggle('hidden', !onCredit);
+    info.innerHTML = '<span class="neg-num">Choose a registered customer to sell on credit.</span>' +
+      (can('customers.manage') ? ' <a href="#/customers/new">Register a customer</a>' : '');
+    return onCredit;
+  }
+  let blocked = false;
+  info.classList.remove('hidden');
+  const owes = customer.balance_cents;
+  let msg = owes > 0 ? `Owes <strong>${money(owes)}</strong>` : owes < 0 ? `Has <strong>${money(-owes)}</strong> in advance` : 'No balance owed';
+  if (customer.credit_limit_cents > 0) {
+    const avail = customer.credit_limit_cents - owes;
+    msg += ` · limit ${money(customer.credit_limit_cents)} · available ${money(Math.max(avail, 0))}`;
+    if (onCredit && total > avail) {
+      msg += '<br><span class="neg-num">This sale is over the credit limit.</span>';
+      blocked = true;
+    }
+  }
+  info.innerHTML = `<span class="muted">${msg}</span>`;
+  return blocked;
+}
+
+// Line value in cents: quantity × the line's price (or cost), which is kept in major units.
+const lineCents = (l, field) => Math.round((l.qty || 0) * (l[field] || 0) * 100);
+
+// Editable product lines in a table body (New sale, Receive stock). Each line is { p, qty, [field] }.
+//   field: 'price' or 'cost'; editable: false shows the price as text; warnShort: stock turns red
+//   when qty is more than in stock; enterToPrice: Enter in Qty moves to the price box (else back to
+//   the search box, so a barcode scanner never submits the form); onChange: after any change.
+// Returns { draw, add(p, qty) }.
+function lineEditor({ body, search, lines, field, editable = true, warnShort = false, enterToPrice = false, emptyText, onChange }) {
+  const short = (l) => warnShort && l.qty > l.p.stock;
+  const draw = () => {
+    body.innerHTML = lines.length
+      ? lines.map((l, i) => `<tr data-i="${i}">
+          <td><strong>${esc(l.p.name)}</strong><div class="muted" style="font-size:12px">${esc(l.p.sku)}</div></td>
+          <td class="num ${short(l) ? 'neg-num' : ''}" data-stock>${l.p.stock} ${esc(l.p.unit)}</td>
+          <td class="num"><input data-f="qty" type="number" min="1" step="1" value="${l.qty ?? ''}" style="text-align:right"></td>
+          <td class="num">${editable
+            ? `<input data-f="${field}" type="number" min="0" step="0.01" value="${l[field] ?? ''}" style="text-align:right">`
+            : money(lineCents({ qty: 1, [field]: l[field] }, field))}</td>
+          <td class="num" data-total>${money(lineCents(l, field))}</td>
+          <td class="num"><button type="button" class="icon-btn" data-rm aria-label="Remove line" title="Remove">${icon('x', 16)}</button></td></tr>`).join('')
+      : `<tr><td colspan="6" class="empty">${emptyText}</td></tr>`;
+    $$('tr[data-i]', body).forEach((row) => {
+      const l = lines[Number(row.dataset.i)];
+      $$('input', row).forEach((inp) => {
+        inp.oninput = () => {
+          l[inp.dataset.f] = inp.value === '' ? null : Number(inp.value);
+          $('[data-total]', row).textContent = money(lineCents(l, field));
+          $('[data-stock]', row).classList.toggle('neg-num', short(l));
+          onChange();
+        };
+        inp.onkeydown = (e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          const price = $(`input[data-f=${field}]`, row);
+          if (enterToPrice && inp.dataset.f === 'qty' && price) price.select();
+          else search.focus();
+        };
+      });
+      $('[data-rm]', row).onclick = () => {
+        lines.splice(Number(row.dataset.i), 1);
+        draw();
+      };
+    });
+    onChange();
+  };
+  // Adds the product (or finds its line) and puts the cursor in its Qty box.
+  const add = (p, qty) => {
+    let i = lines.findIndex((l) => l.p.id === p.id);
+    if (i < 0) {
+      lines.push({ p, qty, [field]: Number(toMajor(field === 'cost' ? p.cost_cents : p.price_cents)) });
+      i = lines.length - 1;
+      draw();
+    }
+    search.value = '';
+    const input = $(`tr[data-i="${i}"] [data-f=qty]`, body);
+    input.focus();
+    input.select();
+  };
+  return { draw, add };
+}
+
 async function pageSell(page) {
   const [products, customers] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers')]);
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
-  const taxRate = Number(state.settings.tax_rate) || 0;
-  let discount = 0;
-  let discountType = 'amount';
   let cartTotal = 0;
 
   page.innerHTML = `
-    <div class="page-head"><h1>New Sale</h1></div>
+    <div class="page-head" data-no-export><h1>Pos Sales</h1></div>
     <div class="pos">
       <div class="card">
         <div class="card-head" style="gap:8px">
@@ -665,20 +863,11 @@ async function pageSell(page) {
         <div class="cart-lines" id="cart-lines"></div>
         <div class="card-pad" style="border-top:1px solid var(--border)">
           <div class="row">
-            <div class="field"><label>Customer</label><select name="customer_id"><option value="">Walk-in customer</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}${c.phone ? ` · ${esc(c.phone)}` : ''}</option>`).join('')}</select></div>
-            <div class="field"><label>Payment</label><select name="payment_method"><option value="cash">Cash</option><option value="card">Card</option><option value="mobile">Mobile money</option><option value="credit">On credit (pay later)</option></select></div>
+            <div class="field"><label>Customer</label><select name="customer_id">${customerOptions(customers)}</select></div>
+            <div class="field"><label>Payment</label><select name="payment_method">${SALE_PAYMENT_OPTIONS}</select></div>
           </div>
           <div class="field hidden" id="cust-info" style="font-size:12.5px"></div>
-          <div class="field" style="margin:0"><label>Discount${can('discount.unlimited') ? '' : ` (max ${esc(state.settings.max_staff_discount ?? '10')}%)`}</label>
-            <div class="discount-field">
-              <input name="discount" type="number" min="0" step="0.01" value="0" aria-label="Discount">
-              <input type="hidden" name="discount_type" value="amount">
-              <div class="seg" role="group" aria-label="Discount type">
-                <button type="button" data-dt="amount" class="active" title="Money amount">${esc(currencySymbol())}</button>
-                <button type="button" data-dt="percent" title="Percentage">%</button>
-              </div>
-            </div>
-          </div>
+          ${discountFieldHtml()}
         </div>
         <div class="totals" id="cart-totals"></div>
         <div class="card-pad" style="padding-top:0"><button class="btn primary block" type="submit" id="checkout" style="min-height:44px;font-size:15px">Complete sale</button></div>
@@ -740,52 +929,22 @@ async function pageSell(page) {
       $('[data-inc]', row).onclick = () => setQty(line.qty + 1);
       $('input', row).onchange = (e) => setQty(parseInt(e.target.value, 10) || 0);
     });
-    const subtotal = state.cart.reduce((s, l) => s + byId[l.id].price_cents * l.qty, 0);
-    const disc = discountType === 'percent'
-      ? Math.round((subtotal * Math.min(discount, 100)) / 100)
-      : Math.min(Math.round(discount * 100), subtotal);
-    const tax = Math.round(((subtotal - disc) * taxRate) / 100);
-    $('#cart-totals').innerHTML = `
-      <div><span class="muted">Subtotal</span><span class="num">${money(subtotal)}</span></div>
-      ${disc ? `<div><span class="muted">Discount${discountType === 'percent' ? ` (${Math.min(discount, 100)}%)` : ''}</span><span class="num">−${money(disc)}</span></div>` : ''}
-      ${taxRate ? `<div><span class="muted">Tax (${taxRate}%)</span><span class="num">${money(tax)}</span></div>` : ''}
-      <div class="grand"><span>Total</span><span class="num">${money(subtotal - disc + tax)}</span></div>`;
-    cartTotal = subtotal - disc + tax;
-    // Same rule the server applies: staff discounts are capped by the owner's setting.
-    const maxPct = Number(state.settings.max_staff_discount ?? 10);
-    const overLimit = !can('discount.unlimited') && disc > 0 && disc * 100 > subtotal * maxPct;
-    if (overLimit) $('#cart-totals').insertAdjacentHTML('beforeend', `<div class="neg-num" style="font-size:13px">Discount is over the ${maxPct}% staff limit.</div>`);
-    $('#checkout').disabled = !state.cart.length || overLimit;
+    const totals = saleTotals(state.cart.reduce((s, l) => s + byId[l.id].price_cents * l.qty, 0), discount);
+    $('#cart-totals').innerHTML = totals.html;
+    cartTotal = totals.total;
     const count = state.cart.reduce((a, l) => a + l.qty, 0);
     $('#cart-jump').classList.toggle('hidden', !count);
     $('#cart-jump').innerHTML = `<span>View cart · ${count} item${count === 1 ? '' : 's'}</span><span>${money(cartTotal)}</span>`;
-    drawCustomer();
+    const creditBlocked = drawCustomer();
+    $('#checkout').disabled = !state.cart.length || totals.overLimit || creditBlocked;
   };
 
   const custSel = $('#cart [name=customer_id]');
   const methodSel = $('#cart [name=payment_method]');
-  // Shows the chosen customer's balance and whether this sale fits their credit limit.
-  const drawCustomer = () => {
-    const info = $('#cust-info');
-    const c = customers.find((x) => x.id === Number(custSel.value));
-    const credit = methodSel.value === 'credit';
-    if (!c) {
-      info.classList.toggle('hidden', !credit);
-      info.innerHTML = '<span class="neg-num">Choose a registered customer to sell on credit.</span>' +
-        (can('customers.manage') ? ' <a href="#/customers/new">Register a customer</a>' : '');
-      return;
-    }
-    info.classList.remove('hidden');
-    const owes = c.balance_cents;
-    let msg = owes > 0 ? `Owes <strong>${money(owes)}</strong>` : owes < 0 ? `Has <strong>${money(-owes)}</strong> in advance` : 'No balance owed';
-    if (c.credit_limit_cents > 0) {
-      const avail = c.credit_limit_cents - owes;
-      msg += ` · limit ${money(c.credit_limit_cents)} · available ${money(Math.max(avail, 0))}`;
-      if (credit && cartTotal > avail) msg += '<br><span class="neg-num">This sale is over the credit limit.</span>';
-    }
-    info.innerHTML = `<span class="muted">${msg}</span>`;
-  };
-  custSel.onchange = methodSel.onchange = drawCustomer;
+  const drawCustomer = () =>
+    drawCustomerCredit($('#cust-info'), customers.find((x) => x.id === Number(custSel.value)), methodSel.value === 'credit', cartTotal);
+  custSel.onchange = methodSel.onchange = () => drawCart();
+  const discount = bindDiscountField($('#cart'), () => drawCart());
   if (state.routeArg && customers.some((c) => c.id === Number(state.routeArg))) {
     custSel.value = state.routeArg;
     methodSel.value = 'credit';
@@ -804,28 +963,6 @@ async function pageSell(page) {
       drawGrid();
     }
   };
-  const discInput = $('#cart [name=discount]');
-  discInput.oninput = () => {
-    discount = Math.max(0, Number(discInput.value) || 0);
-    if (discountType === 'percent' && discount > 100) {
-      discount = 100;
-      discInput.value = 100;
-    }
-    drawCart();
-  };
-  // Switching between money and % clears the value so 10 (money) never silently becomes 10%.
-  $$('#cart [data-dt]').forEach((b) => (b.onclick = () => {
-    if (discountType === b.dataset.dt) return;
-    discountType = b.dataset.dt;
-    $('#cart [name=discount_type]').value = discountType;
-    $$('#cart [data-dt]').forEach((x) => x.classList.toggle('active', x === b));
-    discInput.max = discountType === 'percent' ? '100' : '';
-    discInput.step = discountType === 'percent' ? '0.5' : '0.01';
-    discInput.value = 0;
-    discount = 0;
-    drawCart();
-    discInput.select();
-  }));
   $('#cart-jump').onclick = () => $('#cart').scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Hide the floating bar once the cart's totals are on screen.
   const cartObserver = new IntersectionObserver(([e]) => $('#cart-jump')?.style.setProperty('visibility', e.isIntersecting ? 'hidden' : 'visible'));
@@ -859,6 +996,7 @@ async function pageSell(page) {
 
 function receiptHtml(s) {
   return `<div class="receipt">
+    ${printLogo()}
     <div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
     <div class="c">Receipt #${s.id}</div>
     <div class="c">${esc(s.created_at)}</div>
@@ -881,6 +1019,7 @@ const REFUND_LABEL = { cash: 'Cash', card: 'Card', mobile: 'Mobile money', credi
 
 function returnReceiptHtml(s, r) {
   return `<div class="receipt">
+    ${printLogo()}
     <div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
     <div class="c">RETURN / REFUND</div>
     <div class="c"><strong>${esc(r.ref)}</strong></div>
@@ -1036,7 +1175,8 @@ async function showSale(id, justSold = false) {
       try {
         await api('POST', `/api/sales/${s.id}/void`, r);
         toast(`Sale #${s.id} voided`);
-        router();
+        await router();
+        showSale(s.id);
       } catch (err) {
         toast(err.message, 'error');
       }
@@ -1047,17 +1187,19 @@ async function showSale(id, justSold = false) {
 // ---------- sales history ----------
 
 async function pageSales(page, from = datePresets().month[0], to = localDate()) {
+  if (state.routeArg === 'new' && can('sell')) return pageNewSale(page);
   const sales = await api('GET', `/api/sales?from=${from}&to=${to}`);
   const done = sales.filter((s) => s.status === 'completed');
-  const total = done.reduce((a, s) => a + s.total_cents, 0);
+  const refunded = done.reduce((a, s) => a + (s.returned_cents || 0), 0);
+  const total = done.reduce((a, s) => a + s.total_cents, 0) - refunded;
   page.innerHTML = `
     <div class="page-head"><h1>Sales</h1>
       <div class="toolbar">${dateRangeControls(from, to)}
         ${can('accounting') ? `<a class="btn" href="/api/export/sales.csv?from=${from}&to=${to}">Export CSV</a>` : ''}
-        ${can('sell') ? '<a class="btn primary" href="#/sell">New sale</a>' : ''}</div>
+        ${can('sell') ? '<a class="btn primary" href="#/sales/new">New sale</a>' : ''}</div>
     </div>
     <div class="grid kpis">
-      <div class="card kpi"><div class="label">Total sales</div><div class="value">${money(total)}</div></div>
+      <div class="card kpi"><div class="label">Total sales</div><div class="value">${money(total)}</div>${refunded ? `<div class="sub">after ${money(refunded)} refunded for returns</div>` : ''}</div>
       <div class="card kpi"><div class="label">Transactions</div><div class="value">${done.length}</div></div>
       <div class="card kpi"><div class="label">Average sale</div><div class="value">${money(done.length ? Math.round(total / done.length) : 0)}</div></div>
       <div class="card kpi"><div class="label">Voided</div><div class="value">${sales.length - done.length}</div></div>
@@ -1073,11 +1215,105 @@ async function pageSales(page, from = datePresets().month[0], to = localDate()) 
   $$('[data-sale]', page).forEach((r) => (r.onclick = () => showSale(r.dataset.sale)));
 }
 
+// Invoice-style sale entry (Sales → New sale): customer, product lines, discount, Save.
+// Saves through the same API as Pos Sales, so stock, reports and receipts work the same way.
+async function pageNewSale(page) {
+  const [products, customers] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers')]);
+  // The server only accepts a changed price from users who may give unlimited discounts.
+  const canPrice = can('discount.unlimited');
+  const lines = []; // { p, qty, price } — price in major units
+  page.innerHTML = `
+    <div class="page-head" data-no-export><h1>New sale</h1><a class="btn" href="#/sales">Back to sales</a></div>
+    <form class="card" id="ns-form" novalidate>
+      <div class="card-pad">
+        <div class="row">
+          <div class="field"><label>Customer</label><select name="customer_id">${customerOptions(customers)}</select></div>
+          <div class="field"><label>Payment</label><select name="payment_method">${SALE_PAYMENT_OPTIONS}</select></div>
+        </div>
+        <div class="field hidden" id="ns-cust-info" style="font-size:12.5px"></div>
+        <div class="field picker">
+          <label>Add product</label>
+          <input id="ns-search" placeholder="Type name or SKU, or scan barcode…" autocomplete="off">
+          <div class="picker-list hidden" id="ns-results"></div>
+        </div>
+        <div class="table-wrap" style="border:1px solid var(--border);border-radius:8px">
+          <table class="rs-lines"><thead><tr><th>Product</th><th class="num">In stock</th><th class="num" style="width:96px">Qty</th><th class="num" style="width:110px">Price</th><th class="num">Line total</th><th></th></tr></thead>
+          <tbody id="ns-lines"></tbody></table>
+        </div>
+        <div class="ns-bottom">
+          ${discountFieldHtml()}
+          <div class="totals" id="ns-totals"></div>
+        </div>
+      </div>
+      <div class="card-pad toolbar" style="justify-content:flex-end;border-top:1px solid var(--border)">
+        <a class="btn" href="#/sales">Cancel</a>
+        <button class="btn primary" type="submit" id="ns-save">Save sale</button>
+      </div>
+    </form>`;
+
+  const form = $('#ns-form');
+  const search = $('#ns-search');
+  const body = $('#ns-lines');
+  const custSel = $('[name=customer_id]', form);
+  const methodSel = $('[name=payment_method]', form);
+  let total = 0;
+
+  const drawTotals = () => {
+    const totals = saleTotals(lines.reduce((a, l) => a + lineCents(l, 'price'), 0), discount);
+    total = totals.total;
+    $('#ns-totals').innerHTML = totals.html;
+    const short = lines.find((l) => l.qty > l.p.stock);
+    const creditBlocked = drawCustomerCredit($('#ns-cust-info'), customers.find((c) => c.id === Number(custSel.value)), methodSel.value === 'credit', total);
+    $('#ns-save').disabled = !lines.length || totals.overLimit || !!short || creditBlocked;
+  };
+  const discount = bindDiscountField(form, drawTotals);
+  custSel.onchange = methodSel.onchange = drawTotals;
+
+  const editor = lineEditor({
+    body, search, lines, field: 'price', editable: canPrice, warnShort: true,
+    emptyText: 'Search above to add the products being sold', onChange: drawTotals,
+  });
+  const addLine = (p) => {
+    if (p.stock <= 0 && !lines.some((l) => l.p.id === p.id)) return toast(`${p.name} is out of stock`, 'error');
+    editor.add(p, 1);
+  };
+  bindProductPicker(search, $('#ns-results'), products, addLine, (p) => (lines.some((l) => l.p.id === p.id) ? 'added' : p.stock <= 0 ? 'out of stock' : ''));
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const data = formData(form);
+    const bad = lines.find((l) => !Number.isInteger(l.qty) || l.qty < 1);
+    if (bad) return toast(`Enter a whole-number quantity for ${bad.p.name}`, 'error');
+    const short = lines.find((l) => l.qty > l.p.stock);
+    if (short) return toast(`Only ${short.p.stock} ${short.p.unit} of ${short.p.name} in stock`, 'error');
+    if (data.payment_method === 'credit' && !data.customer_id) return toast('Choose a registered customer for a credit sale', 'error');
+    const btn = $('#ns-save');
+    btn.disabled = true;
+    try {
+      const sale = await api('POST', '/api/sales', {
+        ...data,
+        items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty, ...(canPrice ? { price: l.price ?? 0 } : {}) })),
+      });
+      toast(`Sale #${sale.id} saved: ${money(sale.total_cents)}`);
+      history.replaceState(null, '', '#/sales');
+      await router();
+      showSale(sale.id, true);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
+  };
+
+  editor.draw();
+  search.focus();
+}
+
 // Receipt for a customer payment (money in) or voucher for a supplier payment (money out).
 // `balance` is what is still owed after this payment.
 function showPaymentReceipt(kind, party, p, balance = party.balance_cents) {
   const isCustomer = kind === 'customer';
   const html = `<div class="receipt">
+    ${printLogo()}
     <div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
     <div class="c">${isCustomer ? 'PAYMENT RECEIPT' : 'PAYMENT VOUCHER'}</div>
     <div class="c"><strong>${esc(p.ref)}</strong></div>
@@ -1098,12 +1334,7 @@ function showPaymentReceipt(kind, party, p, balance = party.balance_cents) {
     body: html,
     footer: '<button type="button" class="btn" data-print>Print</button><button type="button" class="btn primary" data-close>Done</button>',
   });
-  $('#modal-root [data-print]').onclick = () => {
-    $('#print-root').innerHTML = html;
-    document.body.classList.add('printing-receipt');
-    window.print();
-    document.body.classList.remove('printing-receipt');
-  };
+  $('#modal-root [data-print]').onclick = () => printHtml(html);
 }
 
 // Asks for a reason, then reverses a payment or expense. Nothing is deleted: the entry stays
@@ -1122,6 +1353,97 @@ async function reverseWithReason(what, effect, url, onDone) {
 }
 
 const reversedNote = (e) => (e.status === 'reversed' ? ` <span class="badge danger">reversed</span>${e.reverse_reason ? ` <span class="muted">${esc(e.reverse_reason)}</span>` : ''}` : '');
+
+// ---------- shared by customer and supplier accounts ----------
+
+// The "Details" card: [label, value] rows; empty values show a dash.
+const detailsCard = (rows) => `<div class="card">
+    <div class="card-head"><h2>Details</h2></div>
+    <table class="statement"><tbody>
+      ${rows.map(([k, v]) => `<tr><td class="muted" style="width:40%">${k}</td><td>${v ? esc(v) : '<span class="muted">—</span>'}</td></tr>`).join('')}
+    </tbody></table>
+  </div>`;
+
+// The statement card: opening balance, one row per entry, closing balance.
+//   chargeLabel / balanceLabel: column headings; csvUrl: the CSV download; note: text under the table;
+//   txn(e): the Transaction cell; rowAttr(e, i): data-* attributes (clicking a row opens it);
+//   charged(e): the charge cell.
+function statementCard(st, { chargeLabel, balanceLabel, csvUrl, note, txn, rowAttr, charged = (e) => (e.charge_cents ? money(e.charge_cents) : '') }) {
+  return `<div class="card">
+    <div class="card-head" style="flex-wrap:wrap"><h2>Statement of account</h2>
+      <div class="toolbar">${dateRangeControls(st.from, st.to)}
+        <button class="btn sm" data-print-statement>Print</button>
+        <a class="btn sm" href="${csvUrl}?from=${st.from}&to=${st.to}">Export CSV</a></div>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">${chargeLabel}</th><th class="num">Paid</th><th class="num">${balanceLabel}</th><th></th></tr></thead><tbody>
+      <tr><td>${fmtDate(st.from)}</td><td colspan="4"><strong>Opening balance</strong></td><td class="num"><strong>${money(st.opening_balance)}</strong></td><td></td></tr>
+      ${st.entries.map((e, i) => `<tr class="clickable ${e.status === 'void' || e.status === 'reversed' ? 'void' : ''}" ${rowAttr(e, i)}>
+        <td>${fmtDateTime(e.date)}</td>
+        <td class="keep">${txn(e)}</td>
+        <td class="wrap" style="max-width:270px">${esc(e.description)}</td>
+        <td class="num">${charged(e)}</td>
+        <td class="num pos-num">${e.paid_cents ? money(e.paid_cents) : ''}</td>
+        <td class="num">${money(e.balance_cents)}</td>
+        <td class="num keep">${e.kind === 'payment' && e.status !== 'reversed' ? `<button class="btn sm" data-revpay="${e.id}" title="Reverse a payment recorded by mistake">Reverse</button>` : ''}</td></tr>`).join('')}
+      ${st.entries.length ? '' : '<tr><td colspan="7" class="empty">No transactions in this period</td></tr>'}
+      <tr class="subtotal" style="background:var(--surface-2)"><td>${fmtDate(st.to)}</td><td colspan="2"><strong>Closing balance</strong></td>
+        <td class="num">${money(st.total_charges)}</td><td class="num">${money(st.total_paid)}</td><td class="num"><strong>${money(st.closing_balance)}</strong></td><td></td></tr>
+    </tbody></table></div>
+    <div class="card-pad muted" style="font-size:12.5px;border-top:1px solid var(--border)">${note}</div>
+  </div>`;
+}
+
+// Printed statement. who: the line under the title; txnText(e): plain-text Transaction cell.
+function printStatement({ title, who, st, chargeLabel, totalLabel, txnText }) {
+  printHtml(`<div class="print-doc">
+    ${printLogo()}
+    <h2>${esc(state.settings.shop_name)}</h2>
+    <h3 style="margin:6px 0 2px">${title}</h3>
+    <div>${who}</div>
+    <div>${fmtDate(st.from)} – ${fmtDate(st.to)}</div>
+    <table style="margin-top:12px"><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">${chargeLabel}</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead><tbody>
+      <tr><td>${esc(st.from)}</td><td colspan="4">Opening balance</td><td class="num">${toMajor(st.opening_balance)}</td></tr>
+      ${st.entries.map((e) => `<tr><td>${esc(e.date.slice(0, 16))}</td><td>${txnText(e)}</td><td>${esc(e.description)}</td>
+        <td class="num">${e.charge_cents ? toMajor(e.charge_cents) : ''}</td><td class="num">${e.paid_cents ? toMajor(e.paid_cents) : ''}</td><td class="num">${toMajor(e.balance_cents)}</td></tr>`).join('')}
+      <tr><td colspan="3"><strong>${totalLabel} (${esc(state.settings.currency)})</strong></td><td class="num">${toMajor(st.total_charges)}</td><td class="num">${toMajor(st.total_paid)}</td><td class="num"><strong>${toMajor(st.closing_balance)}</strong></td></tr>
+    </tbody></table></div>`);
+}
+
+// Everything a statement card does when clicked, plus the "Record payment" form.
+//   kind: 'customer' | 'supplier'; party: the customer or supplier; st: their statement;
+//   reload(from, to): redraws the page; text: the wording that differs between the two.
+function bindAccount(page, { kind, party, st, reload, text, print }) {
+  const base = `/api/${kind}s/${party.id}`;
+  bindDateRange(page, (f, t) => reload(f, t));
+  $$('[data-pay]', page).forEach((r) => (r.onclick = () => {
+    const e = st.entries[r.dataset.pay];
+    showPaymentReceipt(kind, party, { ref: e.ref, amount_cents: e.amount_cents, method: e.method, reversed: e.status === 'reversed', reverse_reason: e.reverse_reason,
+      note: e.description === text.defaultNote ? '' : e.description, created_at: e.date }, e.balance_cents);
+  }));
+  $$('[data-revpay]', page).forEach((b) => (b.onclick = (ev) => {
+    ev.stopPropagation();
+    reverseWithReason('payment', text.reverseEffect, `${base}/payments/${b.dataset.revpay}/reverse`, () => reload(st.from, st.to));
+  }));
+  $('[data-print-statement]', page).onclick = print;
+  $('[data-record-payment]', page).onclick = () =>
+    modal({
+      title: text.paymentTitle,
+      submitLabel: 'Record payment',
+      body: `
+        <p style="margin-top:0" ${party.balance_cents > 0 ? '' : 'class="muted"'}>${party.balance_cents > 0 ? text.owes(money(party.balance_cents)) : text.owesNothing}</p>
+        <div class="row">
+          <div class="field"><label>${text.amountLabel}</label><input name="amount" type="number" min="0.01" step="0.01" value="${party.balance_cents > 0 ? toMajor(party.balance_cents) : ''}" required></div>
+          <div class="field"><label>Paid by</label><select name="method">${PAYMENT_OPTIONS}</select></div>
+        </div>
+        <div class="field"><label>Note / reference</label><input name="note" placeholder="${text.notePlaceholder}"></div>`,
+      onSubmit: async (data) => {
+        const updated = await api('POST', `${base}/payments`, data);
+        toast(`Payment ${updated.payment.ref} recorded`);
+        setTimeout(() => showPaymentReceipt(kind, updated, updated.payment), 0);
+        reload(st.from, st.to);
+      },
+    });
+}
 
 // ---------- customers (credit accounts) ----------
 
@@ -1168,13 +1490,13 @@ async function pageCustomers(page) {
   if (state.routeArg && state.routeArg !== 'new') return pageCustomer(page, Number(state.routeArg));
   const customers = await api('GET', '/api/customers?all=1');
   const active = customers.filter((c) => c.active);
-  const owing = active.filter((c) => c.balance_cents > 0);
+  const owing = customers.filter((c) => c.balance_cents > 0);
   const overLimit = owing.filter((c) => c.credit_limit_cents > 0 && c.balance_cents > c.credit_limit_cents);
   page.innerHTML = `
     <div class="page-head"><h1>Customers</h1>
       <div class="toolbar">
         <input id="c-search" placeholder="Search name, phone, ID…" style="width:220px">
-        <select id="c-filter" style="width:auto"><option value="">All customers</option><option value="owing">Owing money</option><option value="over">Over credit limit</option><option value="inactive">Inactive</option></select>
+        <select id="c-filter" style="width:auto"><option value="">Active customers</option><option value="owing">Owing money</option><option value="over">Over credit limit</option><option value="inactive">Inactive</option></select>
         <button class="btn primary" id="c-add">Register customer</button>
       </div>
     </div>
@@ -1189,7 +1511,7 @@ async function pageCustomers(page) {
     const q = $('#c-search').value.trim().toLowerCase();
     const f = $('#c-filter').value;
     const list = customers.filter((c) => {
-      if (f === 'inactive' ? c.active : !c.active) return false;
+      if (f === 'inactive' ? c.active : f === '' && !c.active) return false;
       if (f === 'owing' && c.balance_cents <= 0) return false;
       if (f === 'over' && !(c.credit_limit_cents > 0 && c.balance_cents > c.credit_limit_cents)) return false;
       return !q || [c.name, c.phone, c.id_number, c.email].some((v) => v.toLowerCase().includes(q));
@@ -1220,7 +1542,8 @@ async function pageCustomer(page, id, from, to = localDate()) {
   const st = await api('GET', `/api/customers/${id}/statement?from=${from}&to=${to}`);
   const c = st.customer;
   const avail = c.credit_limit_cents ? c.credit_limit_cents - c.balance_cents : null;
-  const reload = () => pageCustomer(page, id, from, to);
+  const txnName = (e) => (e.kind === 'sale' ? `Sale #${e.id}` : `${e.ref} ${e.kind === 'return' ? 'Return' : 'Payment'}`);
+  const txnMethod = (e) => (e.kind === 'sale' && e.status === 'void' ? 'void' : e.kind === 'return' ? REFUND_LABEL[e.method] || e.method : METHOD_LABEL[e.method] || e.method);
 
   page.innerHTML = `
     <div class="page-head">
@@ -1228,7 +1551,7 @@ async function pageCustomer(page, id, from, to = localDate()) {
       <div class="toolbar">
         <button class="btn" id="cu-edit">Edit</button>
         ${c.active ? `<a class="btn" href="#/sell/${c.id}">New credit sale</a>` : ''}
-        <button class="btn primary" id="cu-pay">Record payment</button>
+        <button class="btn primary" data-record-payment>Record payment</button>
       </div>
     </div>
     <div class="grid kpis">
@@ -1240,84 +1563,49 @@ async function pageCustomer(page, id, from, to = localDate()) {
       <div class="card kpi"><div class="label">Total paid on account</div><div class="value">${money(c.total_paid_cents)}</div></div>
     </div>
     <div class="grid side-main">
-      <div class="card">
-        <div class="card-head"><h2>Details</h2></div>
-        <table class="statement"><tbody>
-          ${[['Phone', c.phone], ['ID number', c.id_number], ['Email', c.email], ['Address', c.address], ['Customer since', fmtDate(c.created_at)], ['Notes', c.notes]]
-            .map(([k, v]) => `<tr><td class="muted" style="width:40%">${k}</td><td>${v ? esc(v) : '<span class="muted">—</span>'}</td></tr>`).join('')}
-        </tbody></table>
-      </div>
-      <div class="card">
-        <div class="card-head" style="flex-wrap:wrap"><h2>Statement of account</h2>
-          <div class="toolbar">${dateRangeControls(from, to)}
-            <button class="btn sm" id="cu-print">Print</button>
-            <a class="btn sm" href="/api/customers/${c.id}/statement.csv?from=${from}&to=${to}">Export CSV</a></div>
-        </div>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">Charged</th><th class="num">Paid</th><th class="num">Balance</th><th></th></tr></thead><tbody>
-          <tr><td>${fmtDate(st.from)}</td><td colspan="4"><strong>Opening balance</strong></td><td class="num"><strong>${money(st.opening_balance)}</strong></td><td></td></tr>
-          ${st.entries.map((e, i) => `<tr class="clickable ${e.status === 'void' || e.status === 'reversed' ? 'void' : ''}" ${e.kind === 'sale' ? `data-sale="${e.id}"` : e.kind === 'return' ? `data-sale="${e.sale_id}"` : `data-pay="${i}"`}>
-            <td>${fmtDateTime(e.date)}</td>
-            <td class="keep">${e.kind === 'return'
-              ? `<span class="badge warn">${esc(e.ref)}</span> Return <span class="muted">${esc(REFUND_LABEL[e.method] || e.method)}</span>`
-              : e.kind === 'sale'
-              ? `Sale #${e.id} <span class="badge ${e.status === 'void' ? 'danger' : e.method === 'credit' ? 'warn' : ''}">${e.status === 'void' ? 'void' : esc(METHOD_LABEL[e.method] || e.method)}</span>`
-              : `<span class="badge ok">${esc(e.ref)}</span> Payment <span class="muted">${esc(METHOD_LABEL[e.method] || e.method)}</span>${reversedNote(e)}`}</td>
-            <td class="wrap" style="max-width:260px">${esc(e.description)}</td>
-            <td class="num">${e.charge_cents ? money(e.charge_cents) : e.status === 'void' ? money(e.amount_cents) : ''}</td>
-            <td class="num pos-num">${e.paid_cents ? money(e.paid_cents) : ''}</td>
-            <td class="num">${money(e.balance_cents)}</td>
-            <td class="num keep">${e.kind === 'payment' && e.status !== 'reversed' ? `<button class="btn sm" data-revpay="${e.id}" title="Reverse a payment recorded by mistake">Reverse</button>` : ''}</td></tr>`).join('')}
-          ${st.entries.length ? '' : '<tr><td colspan="7" class="empty">No transactions in this period</td></tr>'}
-          <tr class="subtotal" style="background:var(--surface-2)"><td>${fmtDate(st.to)}</td><td colspan="2"><strong>Closing balance</strong></td>
-            <td class="num">${money(st.total_charges)}</td><td class="num">${money(st.total_paid)}</td><td class="num"><strong>${money(st.closing_balance)}</strong></td><td></td></tr>
-        </tbody></table></div>
-        <div class="card-pad muted" style="font-size:12.5px;border-top:1px solid var(--border)">Credit sales add to the balance; payments and returns to the account reduce it. Sales paid at the till, and refunds paid out, are listed too with equal amounts charged and paid.</div>
-      </div>
+      ${detailsCard([['Phone', c.phone], ['ID number', c.id_number], ['Email', c.email], ['Address', c.address], ['Customer since', fmtDate(c.created_at)], ['Notes', c.notes]])}
+      ${statementCard(st, {
+        chargeLabel: 'Charged',
+        balanceLabel: 'Balance',
+        csvUrl: `/api/customers/${c.id}/statement.csv`,
+        note: 'Credit sales add to the balance; payments and returns to the account reduce it. Sales paid at the till, and refunds paid out, are listed too with equal amounts charged and paid.',
+        rowAttr: (e, i) => (e.kind === 'sale' ? `data-sale="${e.id}"` : e.kind === 'return' ? `data-sale="${e.sale_id}"` : `data-pay="${i}"`),
+        charged: (e) => (e.charge_cents ? money(e.charge_cents) : e.status === 'void' ? money(e.amount_cents) : ''),
+        txn: (e) =>
+          e.kind === 'return'
+            ? `<span class="badge warn">${esc(e.ref)}</span> Return <span class="muted">${esc(txnMethod(e))}</span>`
+            : e.kind === 'sale'
+            ? `Sale #${e.id} <span class="badge ${e.status === 'void' ? 'danger' : e.method === 'credit' ? 'warn' : ''}">${esc(txnMethod(e))}</span>`
+            : `<span class="badge ok">${esc(e.ref)}</span> Payment <span class="muted">${esc(txnMethod(e))}</span>${reversedNote(e)}`,
+      })}
     </div>`;
 
-  bindDateRange(page, (f, t) => pageCustomer(page, id, f, t));
   $$('[data-sale]', page).forEach((r) => (r.onclick = () => showSale(r.dataset.sale)));
-  $$('[data-pay]', page).forEach((r) => (r.onclick = () => { const e = st.entries[r.dataset.pay]; showPaymentReceipt('customer', c, { ref: e.ref, amount_cents: e.amount_cents, method: e.method, reversed: e.status === 'reversed', reverse_reason: e.reverse_reason, note: e.description === 'Payment received' ? '' : e.description, created_at: e.date }, e.balance_cents); }));
-  $('#cu-edit').onclick = () => editCustomer(c, reload);
-  $('#cu-pay').onclick = () =>
-    modal({
-      title: `Payment from ${c.name}`,
-      submitLabel: 'Record payment',
-      body: `
-        ${c.balance_cents > 0 ? `<p style="margin-top:0">Currently owes <strong>${money(c.balance_cents)}</strong>.</p>` : '<p style="margin-top:0" class="muted">This customer owes nothing. A payment now is kept as an advance.</p>'}
-        <div class="row">
-          <div class="field"><label>Amount received</label><input name="amount" type="number" min="0.01" step="0.01" value="${c.balance_cents > 0 ? toMajor(c.balance_cents) : ''}" required></div>
-          <div class="field"><label>Paid by</label><select name="method"><option value="cash">Cash</option><option value="mobile">Mobile money</option><option value="bank">Bank transfer</option><option value="card">Card</option></select></div>
-        </div>
-        <div class="field"><label>Note / reference</label><input name="note" placeholder="e.g. receipt no. or transaction ID"></div>`,
-      onSubmit: async (data) => {
-        const updated = await api('POST', `/api/customers/${c.id}/payments`, data);
-        toast(`Payment ${updated.payment.ref} recorded`);
-        setTimeout(() => showPaymentReceipt('customer', updated, updated.payment), 0);
-        reload();
-      },
-    });
-  $$('[data-revpay]', page).forEach((b) => (b.onclick = (ev) => {
-    ev.stopPropagation();
-    reverseWithReason('payment', 'The amount will be added back to what the customer owes.', `/api/customers/${c.id}/payments/${b.dataset.revpay}/reverse`, reload);
-  }));
-  $('#cu-print').onclick = () => {
-    $('#print-root').innerHTML = `<div class="print-doc">
-      <h2>${esc(state.settings.shop_name)}</h2>
-      <h3 style="margin:6px 0 2px">Statement of account</h3>
-      <div>${esc(c.name)}${c.phone ? ` · ${esc(c.phone)}` : ''}${c.id_number ? ` · ID ${esc(c.id_number)}` : ''}</div>
-      <div>${fmtDate(st.from)} – ${fmtDate(st.to)}</div>
-      <table style="margin-top:12px"><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">Charged</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead><tbody>
-        <tr><td>${esc(st.from)}</td><td colspan="4">Opening balance</td><td class="num">${toMajor(st.opening_balance)}</td></tr>
-        ${st.entries.map((e) => `<tr><td>${esc(e.date.slice(0, 16))}</td>
-          <td>${e.kind === 'sale' ? `Sale #${e.id} (${esc(e.status === 'void' ? 'void' : METHOD_LABEL[e.method] || e.method)})` : e.kind === 'return' ? `${esc(e.ref)} Return (${esc(REFUND_LABEL[e.method] || e.method)})` : `${esc(e.ref)} Payment (${esc(METHOD_LABEL[e.method] || e.method)})${e.status === 'reversed' ? ' — REVERSED' : ''}`}</td>
-          <td>${esc(e.description)}</td><td class="num">${e.charge_cents ? toMajor(e.charge_cents) : ''}</td><td class="num">${e.paid_cents ? toMajor(e.paid_cents) : ''}</td><td class="num">${toMajor(e.balance_cents)}</td></tr>`).join('')}
-        <tr><td colspan="3"><strong>Balance due (${esc(state.settings.currency)})</strong></td><td class="num">${toMajor(st.total_charges)}</td><td class="num">${toMajor(st.total_paid)}</td><td class="num"><strong>${toMajor(st.closing_balance)}</strong></td></tr>
-      </tbody></table></div>`;
-    document.body.classList.add('printing-receipt');
-    window.print();
-    document.body.classList.remove('printing-receipt');
-  };
+  $('#cu-edit').onclick = () => editCustomer(c, () => pageCustomer(page, id, from, to));
+  bindAccount(page, {
+    kind: 'customer',
+    party: c,
+    st,
+    reload: (f, t) => pageCustomer(page, id, f, t),
+    text: {
+      defaultNote: 'Payment received',
+      reverseEffect: 'The amount will be added back to what the customer owes.',
+      paymentTitle: `Payment from ${c.name}`,
+      owes: (amount) => `Currently owes <strong>${amount}</strong>.`,
+      owesNothing: 'This customer owes nothing. A payment now is kept as an advance.',
+      amountLabel: 'Amount received',
+      notePlaceholder: 'e.g. receipt no. or transaction ID',
+    },
+    print: () =>
+      printStatement({
+        title: 'Statement of account',
+        who: `${esc(c.name)}${c.phone ? ` · ${esc(c.phone)}` : ''}${c.id_number ? ` · ID ${esc(c.id_number)}` : ''}`,
+        st,
+        chargeLabel: 'Charged',
+        totalLabel: 'Balance due',
+        txnText: (e) => `${esc(txnName(e))} (${esc(txnMethod(e))})${e.status === 'reversed' ? ' — REVERSED' : ''}`,
+      }),
+  });
 }
 
 // ---------- suppliers (accounts payable) ----------
@@ -1362,12 +1650,12 @@ async function pageSuppliers(page) {
   if (state.routeArg && state.routeArg !== 'new') return pageSupplier(page, Number(state.routeArg));
   const suppliers = await api('GET', '/api/suppliers?all=1');
   const active = suppliers.filter((s) => s.active);
-  const owed = active.filter((s) => s.balance_cents > 0);
+  const owed = suppliers.filter((s) => s.balance_cents > 0);
   page.innerHTML = `
     <div class="page-head"><h1>Suppliers</h1>
       <div class="toolbar">
         <input id="su-search" placeholder="Search name, phone, contact…" style="width:220px">
-        <select id="su-filter" style="width:auto"><option value="">All suppliers</option><option value="owed">You owe money</option><option value="inactive">Inactive</option></select>
+        <select id="su-filter" style="width:auto"><option value="">Active suppliers</option><option value="owed">You owe money</option><option value="inactive">Inactive</option></select>
         <button class="btn primary" id="su-add">Register supplier</button>
       </div>
     </div>
@@ -1381,7 +1669,7 @@ async function pageSuppliers(page) {
     const q = $('#su-search').value.trim().toLowerCase();
     const f = $('#su-filter').value;
     const list = suppliers.filter((s) => {
-      if (f === 'inactive' ? s.active : !s.active) return false;
+      if (f === 'inactive' ? s.active : f === '' && !s.active) return false;
       if (f === 'owed' && s.balance_cents <= 0) return false;
       return !q || [s.name, s.phone, s.contact_person, s.email, s.tax_id].some((v) => v.toLowerCase().includes(q));
     });
@@ -1407,7 +1695,6 @@ async function pageSupplier(page, id, from, to = localDate()) {
   from = from || first.created_at.slice(0, 10);
   const st = await api('GET', `/api/suppliers/${id}/statement?from=${from}&to=${to}`);
   const s = st.supplier;
-  const reload = () => pageSupplier(page, id, from, to);
   const label = (e) => esc(METHOD_LABEL[e.method] || e.method);
 
   page.innerHTML = `
@@ -1416,7 +1703,7 @@ async function pageSupplier(page, id, from, to = localDate()) {
       <div class="toolbar">
         <button class="btn" id="sp-edit">Edit</button>
         ${s.active ? '<button class="btn" id="sp-receive">Receive stock</button>' : ''}
-        <button class="btn primary" id="sp-pay">Record payment</button>
+        <button class="btn primary" data-record-payment>Record payment</button>
       </div>
     </div>
     <div class="grid kpis">
@@ -1426,83 +1713,48 @@ async function pageSupplier(page, id, from, to = localDate()) {
       <div class="card kpi"><div class="label">Total paid on account</div><div class="value">${money(s.total_paid_cents)}</div></div>
     </div>
     <div class="grid side-main">
-      <div class="card">
-        <div class="card-head"><h2>Details</h2></div>
-        <table class="statement"><tbody>
-          ${[['Contact', s.contact_person], ['Phone', s.phone], ['Email', s.email], ['Address', s.address], ['Tax / reg. no.', s.tax_id], ['Supplier since', fmtDate(s.created_at)], ['Notes', s.notes]]
-            .map(([k, v]) => `<tr><td class="muted" style="width:40%">${k}</td><td>${v ? esc(v) : '<span class="muted">—</span>'}</td></tr>`).join('')}
-        </tbody></table>
-      </div>
-      <div class="card">
-        <div class="card-head" style="flex-wrap:wrap"><h2>Statement of account</h2>
-          <div class="toolbar">${dateRangeControls(from, to)}
-            <button class="btn sm" id="sp-print">Print</button>
-            <a class="btn sm" href="/api/suppliers/${s.id}/statement.csv?from=${from}&to=${to}">Export CSV</a></div>
-        </div>
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">Received</th><th class="num">Paid</th><th class="num">You owe</th><th></th></tr></thead><tbody>
-          <tr><td>${fmtDate(st.from)}</td><td colspan="4"><strong>Opening balance</strong></td><td class="num"><strong>${money(st.opening_balance)}</strong></td><td></td></tr>
-          ${st.entries.map((e, i) => `<tr class="clickable ${e.status === 'reversed' ? 'void' : ''}" ${e.kind === 'purchase' ? `data-purchase="${e.id}"` : `data-pay="${i}"`}>
-            <td>${fmtDateTime(e.date)}</td>
-            <td>${e.kind === 'purchase'
-              ? `Delivery #${e.id} <span class="badge ${e.method === 'credit' ? 'warn' : ''}">${label(e)}</span>`
-              : `<span class="badge ok">${esc(e.ref)}</span> Payment <span class="muted">${label(e)}</span>${reversedNote(e)}`}</td>
-            <td class="wrap" style="max-width:280px">${esc(e.description)}</td>
-            <td class="num">${e.charge_cents ? money(e.charge_cents) : ''}</td>
-            <td class="num pos-num">${e.paid_cents ? money(e.paid_cents) : ''}</td>
-            <td class="num">${money(e.balance_cents)}</td>
-            <td class="num keep">${e.kind === 'payment' && e.status !== 'reversed' ? `<button class="btn sm" data-revpay="${e.id}" title="Reverse a payment recorded by mistake">Reverse</button>` : ''}</td></tr>`).join('')}
-          ${st.entries.length ? '' : '<tr><td colspan="7" class="empty">No transactions in this period</td></tr>'}
-          <tr class="subtotal" style="background:var(--surface-2)"><td>${fmtDate(st.to)}</td><td colspan="2"><strong>Closing balance</strong></td>
-            <td class="num">${money(st.total_charges)}</td><td class="num">${money(st.total_paid)}</td><td class="num"><strong>${money(st.closing_balance)}</strong></td><td></td></tr>
-        </tbody></table></div>
-        <div class="card-pad muted" style="font-size:12.5px;border-top:1px solid var(--border)">Deliveries on credit add to what you owe and payments reduce it. Deliveries paid on the spot are listed too, with the same amount received and paid.</div>
-      </div>
+      ${detailsCard([['Contact', s.contact_person], ['Phone', s.phone], ['Email', s.email], ['Address', s.address], ['Tax / reg. no.', s.tax_id], ['Supplier since', fmtDate(s.created_at)], ['Notes', s.notes]])}
+      ${statementCard(st, {
+        chargeLabel: 'Received',
+        balanceLabel: 'You owe',
+        csvUrl: `/api/suppliers/${s.id}/statement.csv`,
+        note: 'Deliveries on credit add to what you owe and payments reduce it. Deliveries paid on the spot are listed too, with the same amount received and paid.',
+        rowAttr: (e, i) => (e.kind === 'purchase' ? `data-purchase="${e.id}"` : `data-pay="${i}"`),
+        txn: (e) =>
+          e.kind === 'purchase'
+            ? `Delivery #${e.id} <span class="badge ${e.method === 'credit' ? 'warn' : ''}">${label(e)}</span>`
+            : `<span class="badge ok">${esc(e.ref)}</span> Payment <span class="muted">${label(e)}</span>${reversedNote(e)}`,
+      })}
     </div>`;
 
-  bindDateRange(page, (f, t) => pageSupplier(page, id, f, t));
   $$('[data-purchase]', page).forEach((r) => (r.onclick = () => showPurchase(r.dataset.purchase)));
-  $$('[data-pay]', page).forEach((r) => (r.onclick = () => { const e = st.entries[r.dataset.pay]; showPaymentReceipt('supplier', s, { ref: e.ref, amount_cents: e.amount_cents, method: e.method, reversed: e.status === 'reversed', reverse_reason: e.reverse_reason, note: e.description === 'Payment made' ? '' : e.description, created_at: e.date }, e.balance_cents); }));
+  const reload = () => pageSupplier(page, id, from, to);
   $('#sp-edit').onclick = () => editSupplier(s, reload);
   $('#sp-receive') && ($('#sp-receive').onclick = () => openReceiveStock({ supplierId: s.id, onDone: reload }));
-  $('#sp-pay').onclick = () =>
-    modal({
-      title: `Payment to ${s.name}`,
-      submitLabel: 'Record payment',
-      body: `
-        ${s.balance_cents > 0 ? `<p style="margin-top:0">You currently owe <strong>${money(s.balance_cents)}</strong>.</p>` : '<p style="margin-top:0" class="muted">You owe this supplier nothing. A payment now is kept as an advance.</p>'}
-        <div class="row">
-          <div class="field"><label>Amount paid</label><input name="amount" type="number" min="0.01" step="0.01" value="${s.balance_cents > 0 ? toMajor(s.balance_cents) : ''}" required></div>
-          <div class="field"><label>Paid by</label><select name="method">${PAY_OUT_OPTIONS}</select></div>
-        </div>
-        <div class="field"><label>Note / reference</label><input name="note" placeholder="e.g. cheque no. or transaction ID"></div>`,
-      onSubmit: async (data) => {
-        const updated = await api('POST', `/api/suppliers/${s.id}/payments`, data);
-        toast(`Payment ${updated.payment.ref} recorded`);
-        setTimeout(() => showPaymentReceipt('supplier', updated, updated.payment), 0);
-        reload();
-      },
-    });
-  $$('[data-revpay]', page).forEach((b) => (b.onclick = (ev) => {
-    ev.stopPropagation();
-    reverseWithReason('payment', 'The amount will be added back to what you owe.', `/api/suppliers/${s.id}/payments/${b.dataset.revpay}/reverse`, reload);
-  }));
-  $('#sp-print').onclick = () => {
-    $('#print-root').innerHTML = `<div class="print-doc">
-      <h2>${esc(state.settings.shop_name)}</h2>
-      <h3 style="margin:6px 0 2px">Supplier statement</h3>
-      <div>${esc(s.name)}${s.contact_person ? ` · ${esc(s.contact_person)}` : ''}${s.phone ? ` · ${esc(s.phone)}` : ''}</div>
-      <div>${fmtDate(st.from)} – ${fmtDate(st.to)}</div>
-      <table style="margin-top:12px"><thead><tr><th>Date</th><th>Transaction</th><th>Details</th><th class="num">Received</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead><tbody>
-        <tr><td>${esc(st.from)}</td><td colspan="4">Opening balance</td><td class="num">${toMajor(st.opening_balance)}</td></tr>
-        ${st.entries.map((e) => `<tr><td>${esc(e.date.slice(0, 16))}</td>
-          <td>${e.kind === 'purchase' ? `Delivery #${e.id} (${label(e)})` : `${esc(e.ref)} Payment (${label(e)})${e.status === 'reversed' ? ' — REVERSED' : ''}`}</td>
-          <td>${esc(e.description)}</td><td class="num">${e.charge_cents ? toMajor(e.charge_cents) : ''}</td><td class="num">${e.paid_cents ? toMajor(e.paid_cents) : ''}</td><td class="num">${toMajor(e.balance_cents)}</td></tr>`).join('')}
-        <tr><td colspan="3"><strong>Balance owed (${esc(state.settings.currency)})</strong></td><td class="num">${toMajor(st.total_charges)}</td><td class="num">${toMajor(st.total_paid)}</td><td class="num"><strong>${toMajor(st.closing_balance)}</strong></td></tr>
-      </tbody></table></div>`;
-    document.body.classList.add('printing-receipt');
-    window.print();
-    document.body.classList.remove('printing-receipt');
-  };
+  bindAccount(page, {
+    kind: 'supplier',
+    party: s,
+    st,
+    reload: (f, t) => pageSupplier(page, id, f, t),
+    text: {
+      defaultNote: 'Payment made',
+      reverseEffect: 'The amount will be added back to what you owe.',
+      paymentTitle: `Payment to ${s.name}`,
+      owes: (amount) => `You currently owe <strong>${amount}</strong>.`,
+      owesNothing: 'You owe this supplier nothing. A payment now is kept as an advance.',
+      amountLabel: 'Amount paid',
+      notePlaceholder: 'e.g. cheque no. or transaction ID',
+    },
+    print: () =>
+      printStatement({
+        title: 'Supplier statement',
+        who: `${esc(s.name)}${s.contact_person ? ` · ${esc(s.contact_person)}` : ''}${s.phone ? ` · ${esc(s.phone)}` : ''}`,
+        st,
+        chargeLabel: 'Received',
+        totalLabel: 'Balance owed',
+        txnText: (e) => (e.kind === 'purchase' ? `Delivery #${e.id} (${label(e)})` : `${esc(e.ref)} Payment (${label(e)})${e.status === 'reversed' ? ' — REVERSED' : ''}`),
+      }),
+  });
 }
 
 // ---------- products ----------
@@ -1526,7 +1778,7 @@ function productForm(p = {}) {
       ${isNew ? '<div class="field"><label>Opening stock</label><input name="stock" type="number" min="0" step="1" value="0"></div>' : ''}
       <div class="field"><label>Reorder level (alert when stock falls to)</label><input name="reorder_level" type="number" min="0" step="1" value="${p.reorder_level ?? 5}"></div>
     </div>
-    ${isNew ? '' : `<label class="inline" style="color:var(--text)"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} style="width:auto;min-height:0"> Active (shown in New Sale)</label>
+    ${isNew ? '' : `<label class="inline" style="color:var(--text)"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} style="width:auto;min-height:0"> Active (shown in Pos Sales)</label>
       <p class="muted" style="font-size:12.5px;margin-bottom:0">Stock is changed from the Inventory page (receive stock or adjust count).</p>`}`;
 }
 
@@ -1561,7 +1813,7 @@ function openProductImport(onDone) {
   const box = $('#imp-preview', form);
   const upload = async (commit) => {
     const q = `?filename=${encodeURIComponent(file.name)}&update=${$('#imp-update', form).checked ? 1 : 0}&commit=${commit ? 1 : 0}`;
-    const res = await fetch('/api/products/import' + q, { method: 'POST', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: file });
+    const res = await portalFetch('/api/products/import' + q, { method: 'POST', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: file });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Import failed');
     return data;
@@ -1661,8 +1913,6 @@ async function pageProducts(page) {
 
 // ---------- inventory ----------
 
-const PAY_OUT_OPTIONS = `<option value="cash">Cash</option><option value="bank">Bank transfer</option><option value="mobile">Mobile money</option><option value="card">Card</option>`;
-
 // Receive a delivery: one supplier, many products (search or scan a barcode to add each line).
 // Paid on the spot, or on credit, which adds to what the shop owes that supplier.
 async function openReceiveStock({ products, productId, supplierId, onDone }) {
@@ -1681,7 +1931,7 @@ async function openReceiveStock({ products, productId, supplierId, onDone }) {
       </div>
       <div class="field" id="rs-free"><label>Supplier name (optional)</label><input name="supplier" placeholder="Or register them on the Suppliers page"></div>
       <div class="row">
-        <div class="field"><label>Paid by</label><select name="payment_method">${PAY_OUT_OPTIONS}<option value="credit">On credit (pay later)</option></select></div>
+        <div class="field"><label>Paid by</label><select name="payment_method">${PAYMENT_OPTIONS}<option value="credit">On credit (pay later)</option></select></div>
         <div class="field" id="rs-sup-info" style="font-size:12.5px;align-self:end"></div>
       </div>
       <div class="field picker">
@@ -1730,57 +1980,14 @@ async function openReceiveStock({ products, productId, supplierId, onDone }) {
   if (supplierId) supSel.value = supplierId;
   drawSupplier();
 
-  const drawTotal = () => {
-    const t = lines.reduce((a, l) => a + Math.round((l.qty || 0) * (l.cost || 0) * 100), 0);
-    $('#rs-total', form).textContent = money(t);
-  };
-  const drawLines = () => {
-    body.innerHTML = lines.length
-      ? lines.map((l, i) => `<tr data-i="${i}">
-          <td><strong>${esc(l.p.name)}</strong><div class="muted" style="font-size:12px">${esc(l.p.sku)}</div></td>
-          <td class="num">${l.p.stock} ${esc(l.p.unit)}</td>
-          <td class="num"><input data-f="qty" type="number" min="1" step="1" value="${l.qty ?? ''}" style="text-align:right"></td>
-          <td class="num"><input data-f="cost" type="number" min="0" step="0.01" value="${l.cost}" style="text-align:right"></td>
-          <td class="num" data-total>${money(Math.round((l.qty || 0) * l.cost * 100))}</td>
-          <td class="num"><button type="button" class="icon-btn" data-rm aria-label="Remove line" title="Remove">${icon('x', 16)}</button></td></tr>`).join('')
-      : '<tr><td colspan="6" class="empty">Search above to add the products in this delivery</td></tr>';
-    $$('tr[data-i]', body).forEach((row) => {
-      const l = lines[Number(row.dataset.i)];
-      $$('input', row).forEach((inp) => {
-        inp.oninput = () => {
-          l[inp.dataset.f] = inp.value === '' ? null : Number(inp.value);
-          $('[data-total]', row).textContent = money(Math.round((l.qty || 0) * (l.cost || 0) * 100));
-          drawTotal();
-        };
-        // Enter jumps back to the search box (so a barcode scanner never submits by accident).
-        inp.onkeydown = (e) => {
-          if (e.key !== 'Enter') return;
-          e.preventDefault();
-          if (inp.dataset.f === 'qty') $('[data-f=cost]', row).select();
-          else search.focus();
-        };
-      });
-      $('[data-rm]', row).onclick = () => {
-        lines.splice(Number(row.dataset.i), 1);
-        drawLines();
-      };
-    });
-    drawTotal();
-  };
-  const addLine = (p) => {
-    let i = lines.findIndex((l) => l.p.id === p.id);
-    if (i < 0) {
-      lines.push({ p, qty: null, cost: Number(toMajor(p.cost_cents)) });
-      i = lines.length - 1;
-      drawLines();
-    }
-    search.value = '';
-    const qty = $(`tr[data-i="${i}"] [data-f=qty]`, body);
-    qty.focus();
-    qty.select();
-  };
+  const editor = lineEditor({
+    body, search, lines, field: 'cost', enterToPrice: true,
+    emptyText: 'Search above to add the products in this delivery',
+    onChange: () => ($('#rs-total', form).textContent = money(lines.reduce((a, l) => a + lineCents(l, 'cost'), 0))),
+  });
+  const addLine = (p) => editor.add(p, null);
   bindProductPicker(search, results, products, addLine, (p) => (lines.some((l) => l.p.id === p.id) ? 'added' : ''));
-  drawLines();
+  editor.draw();
   // Wait until after modal() has done its own initial focus.
   const first = productId && products.find((p) => p.id === Number(productId));
   if (first) addLine(first);
@@ -2017,7 +2224,7 @@ async function pageAccounting(page, from = datePresets().month[0], to = localDat
         </div>
         <div class="row">
           <div class="field"><label>Category</label><select name="category">${ex.categories.map((c) => `<option>${c}</option>`).join('')}</select></div>
-          <div class="field"><label>Paid by</label><select name="payment_method"><option value="cash">Cash</option><option value="bank">Bank transfer</option><option value="card">Card</option><option value="mobile">Mobile money</option></select></div>
+          <div class="field"><label>Paid by</label><select name="payment_method">${PAYMENT_OPTIONS}</select></div>
         </div>
         <div class="field"><label>Description</label><input name="description" placeholder="e.g. November electricity bill"></div>`,
       onSubmit: async (data) => {
@@ -2066,6 +2273,8 @@ const AUDIT_LABEL = {
   '2fa.recovery_codes_replaced': 'New recovery codes',
   '2fa.reset_by_admin': 'Two-step login reset by admin',
   '2fa.reset_on_computer': 'Two-step login reset on shop PC',
+  'branding.updated': 'Changed logo / icon',
+  'branding.removed': 'Removed logo / icon',
 };
 const AUDIT_FILTERS = [
   ['', 'All activity'],
@@ -2080,8 +2289,9 @@ const AUDIT_FILTERS = [
   ['user', 'Users & passwords'],
   ['role', 'Roles & permissions'],
   ['settings', 'Settings'],
+  ['branding', 'Logo & icon'],
 ];
-const AUDIT_ALERT = /failed|reversed|voided|returned|password|user\.|role\.|settings|2fa/;
+const AUDIT_ALERT = /failed|reversed|voided|returned|password|user\.|role\.|settings|branding|2fa/;
 
 function auditDetails(json) {
   let d;
@@ -2137,14 +2347,10 @@ function showRecoveryCodes(codes, onDone) {
       toast('Could not copy. Please write them down.', 'error');
     }
   };
-  $('#modal-root [data-print]').onclick = () => {
-    $('#print-root').innerHTML = `<div class="receipt"><div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
+  $('#modal-root [data-print]').onclick = () =>
+    printHtml(`<div class="receipt"><div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
       <div class="c">Recovery codes for ${esc(state.user.username)}</div><hr>${codes.map((c) => `<div class="c">${esc(c)}</div>`).join('')}<hr>
-      <div class="c">Each code works once.</div></div>`;
-    document.body.classList.add('printing-receipt');
-    window.print();
-    document.body.classList.remove('printing-receipt');
-  };
+      <div class="c">Each code works once.</div></div>`);
   const observer = new MutationObserver(() => {
     if (!$('#modal-root .modal')) {
       observer.disconnect();
@@ -2193,10 +2399,35 @@ function confirmTwoStep(setup, onDone) {
   });
 }
 
+// Shrinks a picture to fit w×h (never enlarges) and returns it as PNG. square: centred on a
+// transparent square, for the browser icon. Re-drawing also drops anything hidden in the file.
+async function resizeImage(file, { w, h, square = false }) {
+  if (!/^image\//.test(file.type)) throw new Error('Choose a picture (PNG, JPEG, WebP, SVG or GIF)');
+  if (file.size > 10 * 1024 * 1024) throw new Error('The picture is too large (max 10 MB)');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode().catch(() => { throw new Error('This picture could not be opened'); });
+    const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
+    const scale = Math.min(1, w / iw, h / ih);
+    const dw = Math.max(1, Math.round(iw * scale)), dh = Math.max(1, Math.round(ih * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = square ? Math.max(dw, dh) : dw;
+    canvas.height = square ? Math.max(dw, dh) : dh;
+    canvas.getContext('2d').drawImage(img, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('This picture could not be converted');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function pageSettings(page) {
   const twoStep = await api('GET', '/api/2fa');
   page.innerHTML = `
-    <div class="page-head"><h1>Settings</h1></div>
+    <div class="page-head" data-no-export><h1>Settings</h1></div>
     <div class="grid half" style="align-items:start">
       ${can('settings.manage') ? `<form class="card" id="s-shop" novalidate>
         <div class="card-head"><h2>Shop</h2></div>
@@ -2211,6 +2442,28 @@ async function pageSettings(page) {
           <button class="btn primary" type="submit">Save</button>
         </div>
       </form>` : ''}
+      ${can('settings.manage') ? `<div class="card" id="s-brand">
+        <div class="card-head"><h2>Logo &amp; icon</h2></div>
+        <div class="card-pad">${['logo', 'icon'].map((kind) => `
+          <div class="brand-row" data-kind="${kind}">
+            <div class="brand-preview ${kind}">${brandUrl(kind) ? `<img src="${brandUrl(kind)}" alt="">`
+              : kind === 'icon' && brandUrl('logo') ? `<img src="${brandUrl('logo')}" alt="" title="Using the logo">` : '<span class="muted">None</span>'}</div>
+            <div>
+              <strong>${kind === 'logo' ? 'Logo' : 'Browser icon'}</strong>
+              <div class="muted" style="font-size:12px;margin:2px 0 8px">${kind === 'logo'
+                ? 'Shown on the sign-in page, at the top of the menu, and on receipts and statements.'
+                : brandUrl('icon') ? 'Shown in the browser tab and bookmarks.'
+                : brandUrl('logo') ? '<strong>Using your logo.</strong> Upload a separate icon (a square picture works best) to show something different in the browser tab.'
+                : 'Shown in the browser tab and bookmarks. A square picture works best. Without one, the logo is used.'}</div>
+              <div class="toolbar">
+                <label class="btn sm">${brandUrl(kind) ? 'Change' : 'Upload'}<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden></label>
+                ${brandUrl(kind) ? '<button type="button" class="btn sm danger" data-remove>Remove</button>' : ''}
+              </div>
+            </div>
+          </div>`).join('')}
+          <div class="muted" style="font-size:12px">PNG, JPEG, WebP, SVG or GIF. Pictures are resized automatically.</div>
+        </div>
+      </div>` : ''}
       <div class="card">
         <div class="card-head"><h2>Two-step login</h2><span class="badge ${twoStep.enabled ? 'ok' : 'warn'}">${twoStep.enabled ? 'On' : 'Off'}</span></div>
         <div class="card-pad">
@@ -2251,6 +2504,39 @@ async function pageSettings(page) {
     toast('Settings saved');
     renderShell();
     router();
+  });
+  $$('#s-brand .brand-row').forEach((row) => {
+    const kind = row.dataset.kind;
+    const done = async (branding, msg) => {
+      state.branding = branding;
+      applyFavicon();
+      toast(msg);
+      renderShell();
+      router();
+    };
+    $('input[type=file]', row).onchange = async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        const png = await resizeImage(file, kind === 'icon' ? { w: 256, h: 256, square: true } : { w: 800, h: 300 });
+        const res = await portalFetch(`/api/branding/${kind}`, { method: 'PUT', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: png });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        await done(data, kind === 'logo' ? 'Logo updated' : 'Icon updated');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    const rm = $('[data-remove]', row);
+    if (rm) rm.onclick = async () => {
+      if (!confirm(`Remove the ${kind === 'logo' ? 'logo' : 'browser icon'}?`)) return;
+      try {
+        await done(await api('DELETE', `/api/branding/${kind}`), kind === 'logo' ? 'Logo removed' : 'Icon removed');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
   });
   bindForm('#s-pass', async (data, f) => {
     const r = await api('POST', '/api/password', data);

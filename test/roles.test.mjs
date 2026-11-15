@@ -1,53 +1,17 @@
 // Roles & permissions tests. Each run uses its own portal on a random port with a temporary database.
-import { test, before, after } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer, request, sid } from './helpers.mjs';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 let S;
-let child;
-let dataDir;
-
-const call = async (method, p, { cookie, body } = {}) => {
-  const headers = {};
-  if (cookie) headers.Cookie = cookie;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (method !== 'GET') headers['X-Requested-With'] = 'shop-portal';
-  const r = await fetch(S + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  const text = await r.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {}
-  return { status: r.status, json, text };
-};
-const sid = (r) => (r.headers?.get?.('set-cookie') || '').match(/sid=[0-9a-f]+/)?.[0];
-const login = async (username, password) => {
-  const r = await fetch(S + '/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'shop-portal' },
-    body: JSON.stringify({ username, password }),
-  });
-  return sid(r);
-};
+const call = (method, p, opts) => request(S, method, p, opts);
+const login = async (username, password) => sid(await call('POST', '/api/login', { body: { username, password } }));
 
 let owner, cashier, supply, accountant, roles;
 const PW = { owner: 'Copper#Lantern2026', cashier: 'Staff#Pass2026', supply: 'Crate#Forklift2026', acct: 'Ledger#Balance2026' };
 
 before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shop-roles-'));
-  const port = 40000 + Math.floor(Math.random() * 20000);
-  child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir } });
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('server did not start')), 10000);
-    child.stdout.on('data', (d) => d.toString().includes('running at') && (clearTimeout(t), resolve()));
-    child.on('exit', (code) => reject(new Error('server exited ' + code)));
-  });
-  S = `http://127.0.0.1:${port}`;
+  S = (await startServer()).base;
   await call('POST', '/api/setup', { body: { username: 'owner', password: PW.owner, shop_name: 'Test' } });
   owner = await login('owner', PW.owner);
   roles = (await call('GET', '/api/roles', { cookie: owner })).json;
@@ -58,13 +22,6 @@ before(async () => {
   supply = await login('stores', PW.supply);
   await call('POST', '/api/products', { cookie: owner, body: { sku: 'A1', name: 'Rice 1kg', cost: 4, price: 6, stock: 10 } });
   await call('POST', '/api/suppliers', { cookie: owner, body: { name: 'Wholesaler' } });
-});
-
-after(() => {
-  child?.kill();
-  try {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  } catch {}
 });
 
 test('built-in roles: Cashier (built-in) and Supply chain exist; new staff default to Cashier', async () => {
@@ -168,4 +125,37 @@ test('moving a user to another role changes what they can do', async () => {
   assert.equal((await call('PUT', `/api/users/${c.id}`, { cookie: owner, body: { role: 'staff', role_id: supplyRole.id, active: true } })).status, 200);
   assert.equal((await call('POST', '/api/inventory/adjust', { cookie: cashier, body: { product_id: 1, new_count: 12, note: 'recount' } })).status, 200);
   assert.equal((await call('POST', '/api/sales', { cookie: cashier, body: { items: [{ product_id: 1, qty: 1 }], payment_method: 'cash' } })).status, 403);
+});
+
+test('logo & icon: only "settings.manage" may change them, anyone may view them, only real pictures accepted', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const put = (kind, body, cookie, type = 'application/octet-stream') => call('PUT', `/api/branding/${kind}`, { cookie, body, type });
+
+  assert.deepEqual((await call('GET', '/api/branding')).json, { logo: null, icon: null });
+  assert.equal((await call('GET', '/api/branding/logo')).status, 404);
+  assert.equal((await put('logo', png, cashier)).status, 403);
+  assert.equal((await put('logo', png, '')).status, 401);
+  assert.equal((await put('logo', Buffer.from('<svg onload="alert(1)"></svg>'), owner)).status, 400, 'SVG/HTML refused');
+  assert.equal((await put('banner', png, owner)).status, 400, 'unknown kind');
+  assert.equal((await put('logo', Buffer.concat([png, Buffer.alloc(1024 * 1024)]), owner)).status, 400, 'over 1 MB');
+  assert.equal((await put('logo', png, owner, 'application/json')).status, 415);
+
+  const ok = await put('logo', png, owner);
+  assert.equal(ok.status, 200);
+  const status = ok.json;
+  assert.ok(status.logo && status.icon === null);
+
+  const img = await fetch(S + '/api/branding/logo'); // no sign-in needed (sign-in page)
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal(img.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), png);
+  assert.equal((await fetch(S + '/api/branding/logo', { headers: { 'If-None-Match': img.headers.get('etag') } })).status, 304);
+
+  assert.equal((await call('DELETE', '/api/branding/logo', { cookie: cashier })).status, 403);
+  assert.equal((await call('DELETE', '/api/branding/logo', { cookie: owner })).json.logo, null);
+  assert.equal((await call('GET', '/api/branding/logo')).status, 404);
+  const log = (await call('GET', '/api/audit', { cookie: owner })).json;
+  const actions = (log.rows || log).map((r) => r.action);
+  assert.ok(actions.includes('branding.updated') && actions.includes('branding.removed'));
 });

@@ -324,6 +324,14 @@ function migrate(db) {
     }
   }
 
+  // The shop's logo and browser-tab icon (uploaded in Settings).
+  db.exec(`CREATE TABLE IF NOT EXISTS branding (
+    kind TEXT PRIMARY KEY CHECK (kind IN ('logo','icon')),
+    mime TEXT NOT NULL,
+    data BLOB NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+
   // Default shop settings (existing values are kept).
   const defaults = DEFAULT_SETTINGS;
   const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

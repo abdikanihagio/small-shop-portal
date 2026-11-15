@@ -1,53 +1,25 @@
 // Return items: partial and full returns, exact refund maths, stock, accounts and reports.
 // Every expected figure (cents) is worked out by hand in the comments. Run with:  npm test
-import { test, before, after } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer, request, sid } from './helpers.mjs';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-let child, dataDir, base, admin, staff;
+let base, admin, staff;
 
-const call = async (method, p, { cookie = admin, body } = {}) => {
-  const headers = { Cookie: cookie };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (method !== 'GET') headers['X-Requested-With'] = 'shop-portal';
-  const r = await fetch(base + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  const text = await r.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {}
-  return { status: r.status, json, text, headers: r.headers };
-};
+// Signed in as the owner unless another cookie is given.
+const call = (method, p, { cookie = admin, ...opts } = {}) => request(base, method, p, { cookie, ...opts });
 const ok = async (...a) => {
   const r = await call(...a);
   if (r.status !== 200) throw new Error(`${a[0]} ${a[1]} -> ${r.status} ${r.text}`);
   return r.json;
 };
-const sid = (r) => (r.headers.get('set-cookie') || '').match(/sid=[0-9a-f]+/)?.[0];
 const ret = (saleId, items, refund_method, extra = {}) => call('POST', `/api/sales/${saleId}/returns`, { body: { items, refund_method, reason: 'test', ...extra } });
 
 before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shop-ret-'));
-  const port = 40000 + Math.floor(Math.random() * 20000);
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir } });
-  await new Promise((res, rej) => {
-    child.stdout.on('data', (d) => d.toString().includes('running at') && res());
-    child.on('exit', (c) => rej(new Error('exit ' + c)));
-  });
-  const setup = await fetch(base + '/api/setup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'shop-portal' },
-    body: JSON.stringify({ username: 'boss', password: 'Copper#Lantern2026', shop_name: 'Ret' }),
-  });
-  admin = sid(setup);
+  ({ base } = await startServer());
+  admin = sid(await request(base, 'POST', '/api/setup', { body: { username: 'boss', password: 'Copper#Lantern2026', shop_name: 'Ret' } }));
   await ok('POST', '/api/users', { body: { username: 'till', password: 'blue tiger lamp river', role: 'staff' } });
-  staff = sid(await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'shop-portal' }, body: JSON.stringify({ username: 'till', password: 'blue tiger lamp river' }) }));
+  staff = sid(await request(base, 'POST', '/api/login', { body: { username: 'till', password: 'blue tiger lamp river' } }));
   await ok('PUT', '/api/settings', { body: { tax_rate: 10 } });
   await ok('POST', '/api/products', { body: { sku: 'P1', name: 'Pen', cost: 2, price: 3.33, stock: 100 } });
   await ok('POST', '/api/products', { body: { sku: 'P2', name: 'Pad', cost: 6, price: 10, stock: 100 } });
@@ -56,13 +28,6 @@ before(async () => {
   await ok('POST', '/api/sales', { body: { items: [{ product_id: 1, qty: 3 }, { product_id: 2, qty: 2 }], discount: 7, discount_type: 'percent', payment_method: 'cash' } });
   // S2 credit to Cara: 2×P2. subtotal 2000, tax 200, total 2200
   await ok('POST', '/api/sales', { body: { items: [{ product_id: 2, qty: 2 }], payment_method: 'credit', customer_id: 1 } });
-});
-
-after(() => {
-  child?.kill();
-  try {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  } catch {}
 });
 
 const items = async (saleId) => (await ok('GET', `/api/sales/${saleId}`)).items;

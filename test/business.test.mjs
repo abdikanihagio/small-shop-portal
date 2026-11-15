@@ -1,43 +1,22 @@
 // Business-logic regression test: a realistic month of trading on a throwaway database, with
 // every total checked against figures worked out by hand (in cents). Run with:  npm test
-import { test, before, after } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { startServer, request, sid } from './helpers.mjs';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-let child, dataDir, base, admin, staff;
+let base, admin, staff;
 
-const call = async (method, p, { cookie, body } = {}) => {
-  const headers = {};
-  if (cookie) headers.Cookie = cookie;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (method !== 'GET') headers['X-Requested-With'] = 'shop-portal';
-  const r = await fetch(base + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  const text = await r.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch {}
-  if (r.status >= 400) throw new Error(`${method} ${p} -> ${r.status} ${text}`);
-  return { json, text, headers: r.headers };
+// Any error answer fails the test straight away.
+const call = async (method, p, opts) => {
+  const r = await request(base, method, p, opts);
+  if (r.status >= 400) throw new Error(`${method} ${p} -> ${r.status} ${r.text}`);
+  return r;
 };
-const sid = (r) => (r.headers.get('set-cookie') || '').match(/sid=[0-9a-f]+/)?.[0];
 const A = (p, body) => call('POST', p, { cookie: admin, body });
 const G = (p, cookie = admin) => call('GET', p, { cookie }).then((r) => r.json);
 
 before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shop-biz-'));
-  const port = 40000 + Math.floor(Math.random() * 20000);
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir } });
-  await new Promise((res, rej) => {
-    child.stdout.on('data', (d) => d.toString().includes('running at') && res());
-    child.on('exit', (c) => rej(new Error('exit ' + c)));
-  });
+  ({ base } = await startServer());
   admin = sid(await call('POST', '/api/setup', { body: { username: 'boss', password: 'Copper#Lantern2026', shop_name: 'Biz' } }));
   await A('/api/users', { username: 'till', password: 'blue tiger lamp river', role: 'staff' });
   staff = sid(await call('POST', '/api/login', { body: { username: 'till', password: 'blue tiger lamp river' } }));
@@ -74,13 +53,6 @@ before(async () => {
   await A('/api/sales/3/void', { reason: 'returned' });
   // 11. Cash sale 1×A at the new average cost.  subtotal 1000, tax 100, total 1100, cogs 518
   await A('/api/sales', { items: [{ product_id: 1, qty: 1 }], payment_method: 'cash' });
-});
-
-after(() => {
-  child?.kill();
-  try {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  } catch {}
 });
 
 test('stock levels and weighted average costs', async () => {
