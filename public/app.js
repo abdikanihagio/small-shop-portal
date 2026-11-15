@@ -180,6 +180,17 @@ const ICONS = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   bag: '<path d="M5 8h14l-1.3 11.2a2 2 0 0 1-2 1.8H8.3a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+  collapse: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 10l-2 2 2 2"/>',
+  expand: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M13 10l2 2-2 2"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  money: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+  owe: '<path d="M12 3v18M17 7.5C17 5.6 14.8 4 12 4S7 5.6 7 7.5 9.2 11 12 11.5s5 2 5 4-2.2 3.5-5 3.5-5-1.6-5-3.5"/>',
 };
 
 function icon(name, size = 18) {
@@ -436,7 +447,47 @@ async function loadBranding() {
   applyFavicon();
 }
 
+// ---------- theme ----------
+
+// Saved per browser; "system" follows the computer's light/dark setting.
+const store = {
+  get: (k) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {}
+  },
+};
+const THEMES = { system: ['monitor', 'System'], light: ['sun', 'Light'], dark: ['moon', 'Dark'] };
+const currentTheme = () => (THEMES[store.get('theme')] ? store.get('theme') : 'system');
+function applyTheme(theme = currentTheme()) {
+  if (theme === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.dataset.theme = theme;
+}
+applyTheme();
+
 // ---------- auth screens ----------
+
+// The left half of the sign-in screens (hidden on phones).
+const authAside = () => `
+  <aside class="auth-aside">
+    <div class="auth-aside-brand">${brandMark('Shop logo')}<span>Shop Portal</span></div>
+    <div>
+      <h2>Run the whole shop from one place.</h2>
+      <ul>
+        <li>${icon('sell', 16)} Sales at the till or by invoice</li>
+        <li>${icon('inventory', 16)} Stock, suppliers and deliveries</li>
+        <li>${icon('accounting', 16)} Profit, cash flow and customer credit</li>
+      </ul>
+    </div>
+    <div class="auth-aside-foot">Signed in staff only. Every change is recorded in the activity log.</div>
+  </aside>`;
 
 async function renderAuth() {
   const { needsSetup, setupAllowed } = await api('GET', '/api/setup');
@@ -444,17 +495,17 @@ async function renderAuth() {
   // The owner account can only be created on the shop computer itself.
   if (needsSetup && !setupAllowed) {
     $('#app').innerHTML = `
-      <div class="auth"><div class="card">
+      <div class="auth">${authAside()}<div class="auth-main"><div class="auth-card">
         ${brandMark('Shop logo')}
         <h1>Shop not set up yet</h1>
         <p class="muted">For safety, the owner account can only be created on the computer running the portal.
           Open <strong>http://localhost:${esc(location.port || '80')}</strong> on that computer to finish setup.</p>
-      </div></div>`;
+      </div></div></div>`;
     return;
   }
   $('#app').innerHTML = `
-    <div class="auth">
-      <form class="card" novalidate>
+    <div class="auth">${authAside()}<div class="auth-main">
+      <form class="auth-card" novalidate>
         ${brandMark('Shop logo')}
         <h1>${needsSetup ? 'Set up your shop' : 'Sign in'}</h1>
         <p class="muted">${needsSetup ? 'Create the owner (admin) account to get started.' : 'Welcome back. Sign in to manage your shop.'}</p>
@@ -464,9 +515,9 @@ async function renderAuth() {
           <div class="field"><label>Your name</label><input name="name"></div>` : ''}
         <div class="field"><label>Username</label><input name="username" autocomplete="username" required></div>
         <div class="field"><label>Password${needsSetup ? ' (min. 8 characters)' : ''}</label><input name="password" type="password" autocomplete="${needsSetup ? 'new-password' : 'current-password'}" required></div>
-        <button class="btn primary block" type="submit">${needsSetup ? 'Create account' : 'Sign in'}</button>
+        <button class="btn primary block lg" type="submit">${needsSetup ? 'Create account' : 'Sign in'}</button>
       </form>
-    </div>`;
+    </div></div>`;
   const form = $('#app form');
   $('input', form).focus();
   form.onsubmit = async (e) => {
@@ -487,19 +538,19 @@ async function renderAuth() {
 function renderTwoStep(ticket) {
   let recovery = false;
   $('#app').innerHTML = `
-    <div class="auth">
-      <form class="card" novalidate>
+    <div class="auth">${authAside()}<div class="auth-main">
+      <form class="auth-card" novalidate>
         ${brandMark('Shop logo')}
         <h1>Two-step login</h1>
         <p class="muted" id="ts-help"></p>
         <div class="error-msg hidden"></div>
         <div class="field"><label id="ts-label"></label><input name="code" id="ts-code" autocomplete="one-time-code" required></div>
-        <button class="btn primary block" type="submit">Verify</button>
+        <button class="btn primary block lg" type="submit">Verify</button>
         <div class="toolbar" style="justify-content:space-between;margin-top:14px;font-size:13px">
           <a href="#" id="ts-switch"></a><a href="#" id="ts-back">Back to sign in</a>
         </div>
       </form>
-    </div>`;
+    </div></div>`;
   const form = $('#app form');
   const input = $('#ts-code');
   const draw = () => {
@@ -545,38 +596,56 @@ function renderTwoStep(ticket) {
 // ---------- shell & routing ----------
 
 const PAGES = {
-  dashboard: { title: 'Dashboard', render: pageDashboard },
-  sell: { title: 'Pos Sales', render: pageSell, perms: ['sell'] },
-  sales: { title: 'Sales', render: pageSales, perms: ['sales.view'] },
-  customers: { title: 'Customers', render: pageCustomers, perms: ['customers.manage'] },
-  suppliers: { title: 'Suppliers', render: pageSuppliers, perms: ['suppliers.manage'] },
-  products: { title: 'Products', render: pageProducts, perms: ['products.view', 'products.manage'] },
-  inventory: { title: 'Inventory', render: pageInventory, perms: ['inventory.view', 'inventory.manage'] },
-  accounting: { title: 'Accounting', render: pageAccounting, perms: ['accounting'] },
-  activity: { title: 'Activity log', render: pageActivity, perms: ['activity.view'] },
-  users: { title: 'Users & roles', render: pageUsers, adminOnly: true },
-  settings: { title: 'Settings', render: pageSettings },
+  dashboard: { title: 'Dashboard', render: pageDashboard, group: '' },
+  sell: { title: 'Pos Sales', render: pageSell, perms: ['sell'], group: 'Sales' },
+  sales: { title: 'Sales', render: pageSales, perms: ['sales.view'], group: 'Sales' },
+  customers: { title: 'Customers', render: pageCustomers, perms: ['customers.manage'], group: 'Sales' },
+  products: { title: 'Products', render: pageProducts, perms: ['products.view', 'products.manage'], group: 'Stock' },
+  inventory: { title: 'Inventory', render: pageInventory, perms: ['inventory.view', 'inventory.manage'], group: 'Stock' },
+  suppliers: { title: 'Suppliers', render: pageSuppliers, perms: ['suppliers.manage'], group: 'Stock' },
+  accounting: { title: 'Accounting', render: pageAccounting, perms: ['accounting'], group: 'Finance' },
+  activity: { title: 'Activity log', render: pageActivity, perms: ['activity.view'], group: 'Admin' },
+  users: { title: 'Users & roles', render: pageUsers, adminOnly: true, group: 'Admin' },
+  settings: { title: 'Settings', render: pageSettings, group: 'Admin' },
 };
 
+const initials = (name) => String(name).trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+
 function renderShell() {
-  const links = Object.entries(PAGES)
-    .filter(([, p]) => (p.adminOnly ? isAdmin() : !p.perms || can(...p.perms)))
-    .map(([k, p]) => `<a href="#/${k}" data-route="${k}">${icon(k)}<span>${p.title}</span></a>`)
+  const allowed = Object.entries(PAGES).filter(([, p]) => (p.adminOnly ? isAdmin() : !p.perms || can(...p.perms)));
+  const groups = [...new Set(allowed.map(([, p]) => p.group))];
+  const nav = groups
+    .map((g) => `<div class="nav-group">${g ? `<div class="nav-label">${g}</div>` : ''}${allowed
+      .filter(([, p]) => p.group === g)
+      .map(([k, p]) => `<a href="#/${k}" data-route="${k}" title="${p.title}">${icon(k)}<span>${p.title}</span></a>`)
+      .join('')}</div>`)
     .join('');
+  const who = state.user.name || state.user.username;
+  const roleName = state.user.is_owner ? 'Owner' : state.user.role_name || state.user.role;
   $('#app').innerHTML = `
-    <div class="shell">
+    <div class="shell ${store.get('nav') === 'collapsed' ? 'collapsed' : ''}">
       <div class="nav-backdrop"></div>
       <aside class="sidebar">
         <div class="brand">${brandMark()}<span>${esc(state.settings.shop_name)}</span></div>
-        <nav class="nav">${links}</nav>
-        <div class="sidebar-foot">
-          <div><strong>${esc(state.user.name || state.user.username)}</strong></div>
-          <div class="muted">${esc(state.user.is_owner ? 'Owner' : state.user.role_name || state.user.role)}</div>
-          <button class="btn sm" style="margin-top:10px" id="logout">Sign out</button>
-        </div>
+        <nav class="nav">${nav}</nav>
+        <button type="button" class="nav-collapse" id="nav-collapse" title="Collapse menu">${icon('collapse')}<span>Collapse</span></button>
       </aside>
-      <div>
-        <div class="mobile-bar"><button class="icon-btn" id="menu-btn" aria-label="Menu">${icon('menu', 22)}</button>${brandUrl('logo') ? brandMark() : ''}${esc(state.settings.shop_name)}</div>
+      <div class="content">
+        <header class="topbar">
+          <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu">${icon('menu', 22)}</button>
+          <div class="crumbs"><span class="crumb-shop">${esc(state.settings.shop_name)}</span><span class="crumb-sep">/</span><span id="crumb-page"></span></div>
+          <div class="topbar-actions">
+            <button type="button" class="icon-btn" id="theme-btn" aria-label="Colour theme"></button>
+            <details class="user-menu">
+              <summary><span class="avatar">${esc(initials(who))}</span><span class="user-meta"><strong>${esc(who)}</strong><small>${esc(roleName)}</small></span>${icon('chevron', 16)}</summary>
+              <div class="menu-list">
+                <div class="menu-head"><strong>${esc(who)}</strong><small>${esc(state.user.username)} · ${esc(roleName)}</small></div>
+                <a href="#/settings">${icon('settings', 16)} Settings</a>
+                <button type="button" id="logout">${icon('logout', 16)} Sign out</button>
+              </div>
+            </details>
+          </div>
+        </header>
         <main class="main" id="page"></main>
       </div>
     </div>`;
@@ -586,11 +655,37 @@ function renderShell() {
     location.hash = '';
     renderAuth();
   };
+  // Theme button cycles System → Light → Dark.
+  const themeBtn = $('#theme-btn');
+  const drawTheme = () => {
+    const [ic, label] = THEMES[currentTheme()];
+    themeBtn.innerHTML = icon(ic);
+    themeBtn.title = `Theme: ${label} (click to change)`;
+  };
+  themeBtn.onclick = () => {
+    const order = Object.keys(THEMES);
+    store.set('theme', order[(order.indexOf(currentTheme()) + 1) % order.length]);
+    applyTheme();
+    drawTheme();
+  };
+  drawTheme();
+  $('#nav-collapse').onclick = () => {
+    const collapsed = $('.shell').classList.toggle('collapsed');
+    store.set('nav', collapsed ? 'collapsed' : 'open');
+  };
   new MutationObserver(ensureExportMenu).observe($('#page'), { childList: true });
   $('#menu-btn').onclick = () => $('.shell').classList.toggle('nav-open');
   $('.nav-backdrop').onclick = () => $('.shell').classList.remove('nav-open');
-  $$('.nav a').forEach((a) => (a.onclick = () => $('.shell').classList.remove('nav-open')));
+  $$('.nav a, .menu-list a').forEach((a) => (a.onclick = () => {
+    $('.shell').classList.remove('nav-open');
+    $('.user-menu').open = false;
+  }));
 }
+
+document.addEventListener('click', (e) => {
+  const m = $('.user-menu[open]');
+  if (m && !m.contains(e.target)) m.open = false;
+});
 
 async function router() {
   if (!state.user) return;
@@ -601,8 +696,9 @@ async function router() {
   state.route = name;
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === name));
   document.title = `${PAGES[name].title} · ${state.settings.shop_name}`;
+  $('#crumb-page').textContent = PAGES[name].title;
   const page = $('#page');
-  page.innerHTML = '<div class="muted">Loading…</div>';
+  page.innerHTML = '<div class="loading"><span class="spinner"></span> Loading…</div>';
   try {
     await PAGES[name].render(page);
   } catch (err) {
@@ -651,18 +747,19 @@ function barChart(daily) {
 async function pageDashboard(page) {
   const d = await api('GET', '/api/reports/dashboard');
   const m = d.month;
-  const kpi = (label, value, sub = '') => `<div class="card kpi"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+  const kpi = (label, value, sub = '', ic = '', tone = '') =>
+    `<div class="card kpi">${ic ? `<span class="kpi-icon ${tone}">${icon(ic, 18)}</span>` : ''}<div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
   page.innerHTML = `
     <div class="page-head"><h1>Dashboard</h1>${can('sell') ? `<a class="btn primary" href="#/sell">${icon('sell', 16)} Pos Sales</a>` : ''}</div>
     <div class="grid kpis">
-      ${kpi("Today's sales", money(d.today.total - (d.today.refunds || 0)), `${d.today.count} transaction${d.today.count === 1 ? '' : 's'}${d.today.refunds ? ` · ${money(d.today.refunds)} refunded` : ''}`)}
-      ${m ? kpi('Sales this month', money(m.net_sales), `${m.sales_count} sales`) : ''}
-      ${m ? kpi('Gross profit (month)', money(m.gross_profit), `${pct(m.gross_margin)} margin`) : ''}
-      ${m ? kpi('Net profit (month)', `<span class="${m.net_profit < 0 ? 'neg-num' : ''}">${money(m.net_profit)}</span>`, `after ${money(m.total_expenses)} expenses`) : ''}
-      ${d.inventory_value != null ? kpi('Stock value', money(d.inventory_value), `${d.product_count} products`) : kpi('Products', d.product_count)}
-      ${m ? kpi('Owed by customers', `<a href="#/customers" style="color:inherit;text-decoration:none">${money(m.receivables.total)}</a>`, `${m.receivables.customers} customer${m.receivables.customers === 1 ? '' : 's'} on credit`) : ''}
-      ${m ? kpi('You owe suppliers', `<a href="#/suppliers" style="color:inherit;text-decoration:none">${money(m.payables.total)}</a>`, `to ${m.payables.suppliers} supplier${m.payables.suppliers === 1 ? '' : 's'}`) : ''}
-      ${kpi('Low stock', `<span class="${d.low_stock.length ? 'neg-num' : ''}">${d.low_stock.length}</span>`, 'at or below reorder level')}
+      ${kpi("Today's sales", money(d.today.total - (d.today.refunds || 0)), `${d.today.count} transaction${d.today.count === 1 ? '' : 's'}${d.today.refunds ? ` · ${money(d.today.refunds)} refunded` : ''}`, 'sales', 'info')}
+      ${m ? kpi('Sales this month', money(m.net_sales), `${m.sales_count} sales`, 'money', 'info') : ''}
+      ${m ? kpi('Gross profit (month)', money(m.gross_profit), `${pct(m.gross_margin)} margin`, 'trend', 'ok') : ''}
+      ${m ? kpi('Net profit (month)', `<span class="${m.net_profit < 0 ? 'neg-num' : ''}">${money(m.net_profit)}</span>`, `after ${money(m.total_expenses)} expenses`, 'accounting', m.net_profit < 0 ? 'danger' : 'ok') : ''}
+      ${d.inventory_value != null ? kpi('Stock value', money(d.inventory_value), `${d.product_count} products`, 'inventory') : kpi('Products', d.product_count, '', 'products')}
+      ${m ? kpi('Owed by customers', `<a href="#/customers" style="color:inherit;text-decoration:none">${money(m.receivables.total)}</a>`, `${m.receivables.customers} customer${m.receivables.customers === 1 ? '' : 's'} on credit`, 'customers', 'warn') : ''}
+      ${m ? kpi('You owe suppliers', `<a href="#/suppliers" style="color:inherit;text-decoration:none">${money(m.payables.total)}</a>`, `to ${m.payables.suppliers} supplier${m.payables.suppliers === 1 ? '' : 's'}`, 'suppliers', 'warn') : ''}
+      ${kpi('Low stock', `<span class="${d.low_stock.length ? 'neg-num' : ''}">${d.low_stock.length}</span>`, 'at or below reorder level', 'alert', d.low_stock.length ? 'danger' : '')}
     </div>
     <div class="grid two-col" style="margin-bottom:16px">
       <div class="card"><div class="card-head"><h2>Sales, last 30 days</h2></div><div class="card-pad">${barChart(d.daily)}</div></div>
@@ -2401,6 +2498,16 @@ function confirmTwoStep(setup, onDone) {
 
 // Shrinks a picture to fit w×h (never enlarges) and returns it as PNG. square: centred on a
 // transparent square, for the browser icon. Re-drawing also drops anything hidden in the file.
+const ICON_SIZE = { w: 256, h: 256, square: true };
+
+// Sends a logo / icon picture; returns the new { logo, icon } status.
+async function uploadBranding(kind, png) {
+  const res = await portalFetch(`/api/branding/${kind}`, { method: 'PUT', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: png });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
 async function resizeImage(file, { w, h, square = false }) {
   if (!/^image\//.test(file.type)) throw new Error('Choose a picture (PNG, JPEG, WebP, SVG or GIF)');
   if (file.size > 10 * 1024 * 1024) throw new Error('The picture is too large (max 10 MB)');
@@ -2453,9 +2560,10 @@ async function pageSettings(page) {
               <div class="muted" style="font-size:12px;margin:2px 0 8px">${kind === 'logo'
                 ? 'Shown on the sign-in page, at the top of the menu, and on receipts and statements.'
                 : brandUrl('icon') ? 'Shown in the browser tab and bookmarks.'
-                : brandUrl('logo') ? '<strong>Using your logo.</strong> Upload a separate icon (a square picture works best) to show something different in the browser tab.'
-                : 'Shown in the browser tab and bookmarks. A square picture works best. Without one, the logo is used.'}</div>
+                : brandUrl('logo') ? 'Shown in the browser tab and bookmarks. For now the tab shows your logo; save it as the icon, or upload a different square picture.'
+                : 'Shown in the browser tab and bookmarks. Uploading a logo sets it as the icon too; you can change it here.'}</div>
               <div class="toolbar">
+                ${kind === 'icon' && !brandUrl('icon') && brandUrl('logo') ? '<button type="button" class="btn sm primary" data-use-logo>Use logo</button>' : ''}
                 <label class="btn sm">${brandUrl(kind) ? 'Change' : 'Upload'}<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden></label>
                 ${brandUrl(kind) ? '<button type="button" class="btn sm danger" data-remove>Remove</button>' : ''}
               </div>
@@ -2519,11 +2627,23 @@ async function pageSettings(page) {
       e.target.value = '';
       if (!file) return;
       try {
-        const png = await resizeImage(file, kind === 'icon' ? { w: 256, h: 256, square: true } : { w: 800, h: 300 });
-        const res = await portalFetch(`/api/branding/${kind}`, { method: 'PUT', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: png });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Upload failed');
-        await done(data, kind === 'logo' ? 'Logo updated' : 'Icon updated');
+        if (kind === 'icon') return await done(await uploadBranding('icon', await resizeImage(file, ICON_SIZE)), 'Icon updated');
+        let status = await uploadBranding('logo', await resizeImage(file, { w: 800, h: 300 }));
+        // No separate icon yet: the logo becomes the browser icon too (as a square picture).
+        const alsoIcon = !status.icon;
+        if (alsoIcon) status = await uploadBranding('icon', await resizeImage(file, ICON_SIZE));
+        await done(status, alsoIcon ? 'Logo updated, and used as the browser icon' : 'Logo updated');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    const useLogo = $('[data-use-logo]', row);
+    if (useLogo) useLogo.onclick = async () => {
+      try {
+        const res = await portalFetch(brandUrl('logo'));
+        if (!res.ok) throw new Error('Could not read the logo');
+        const blob = await res.blob();
+        await done(await uploadBranding('icon', await resizeImage(new File([blob], 'logo.png', { type: blob.type || 'image/png' }), ICON_SIZE)), 'The logo is now the browser icon');
       } catch (err) {
         toast(err.message, 'error');
       }
