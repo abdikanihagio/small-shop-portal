@@ -1,12 +1,17 @@
-// The shop's logo (sign-in page, sidebar, receipts) and icon (browser tab).
+// The shop's look: logo (sign-in page, sidebar, receipts), icon (browser tab) and colours.
+// All of it is public, because the sign-in page shows it before anyone signs in.
 const BrandingModel = require('../models/branding.model');
+const SettingsModel = require('../models/settings.model');
 const audit = require('./audit.service');
 const { transaction } = require('../config/database');
 const { notFound } = require('../utils/http-error');
 
 const LABEL = { logo: 'Logo', icon: 'Icon' };
 
-const status = () => BrandingModel.versions();
+async function status() {
+  const [versions, settings] = await Promise.all([BrandingModel.versions(), SettingsModel.all()]);
+  return { ...versions, colors: { primary: settings.primary_color || '', sidebar: settings.sidebar_color || '' } };
+}
 
 async function image(kind) {
   const row = await BrandingModel.find(kind);

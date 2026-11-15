@@ -59,7 +59,7 @@ staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `T
 | **Products** | Add/edit products with SKU, category, unit, cost and selling price, margin, reorder level, deactivate |
 | **Inventory** | Stock levels, receive stock from suppliers (updates weighted average cost), adjust counts (damage, loss, recount), full movement history |
 | **Accounting** | Profit & loss statement, cash flow, sales by payment method, expense tracking by category, sales-tax collected, CSV exports for your accountant |
-| **Settings** | Shop name, currency, tax/VAT rate, maximum staff discount, **logo & browser icon** (upload PNG/JPEG/WebP/SVG/GIF; the logo shows on the sign-in page, the menu, receipts and statements; pictures are resized and kept in the shop database, so backups include them), two-step login, password changes, sign out other devices |
+| **Settings** | Shop name, currency, tax/VAT rate, maximum staff discount, **appearance colours** (accent and menu colour for everyone, with presets or any colour; shades adjust automatically so text stays readable in light and dark mode), **logo & browser icon** (upload PNG/JPEG/WebP/SVG/GIF; the logo shows on the sign-in page, the menu, receipts and statements; pictures are resized and kept in the shop database, so backups include them), two-step login, password changes, sign out other devices |
 | **Users & roles** | Admins only, in its own menu item: staff accounts (add, change role, disable, reset password or two-step login) and **Roles & permissions** |
 | **Activity log** | Owner-only, append-only record of sign-ins (and failed ones), payments, reversals, voids, discounts, price changes, stock changes, user and settings changes |
 

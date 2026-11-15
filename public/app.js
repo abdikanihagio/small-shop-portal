@@ -180,8 +180,7 @@ const ICONS = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   bag: '<path d="M5 8h14l-1.3 11.2a2 2 0 0 1-2 1.8H8.3a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
-  collapse: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 10l-2 2 2 2"/>',
-  expand: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M13 10l2 2-2 2"/>',
+  chevrons: '<path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
@@ -445,6 +444,7 @@ async function loadBranding() {
     state.branding = {};
   }
   applyFavicon();
+  applyColours();
 }
 
 // ---------- theme ----------
@@ -472,22 +472,85 @@ function applyTheme(theme = currentTheme()) {
 }
 applyTheme();
 
-// ---------- auth screens ----------
+// ---------- shop colours (Settings → Appearance) ----------
+// The owner picks an accent colour and a menu colour. From them the page works out every shade it
+// needs, for light and dark mode, keeping text readable (WCAG contrast) whatever was picked.
 
-// The left half of the sign-in screens (hidden on phones).
-const authAside = () => `
-  <aside class="auth-aside">
-    <div class="auth-aside-brand">${brandMark('Shop logo')}<span>Shop Portal</span></div>
-    <div>
-      <h2>Run the whole shop from one place.</h2>
-      <ul>
-        <li>${icon('sell', 16)} Sales at the till or by invoice</li>
-        <li>${icon('inventory', 16)} Stock, suppliers and deliveries</li>
-        <li>${icon('accounting', 16)} Profit, cash flow and customer credit</li>
-      </ul>
-    </div>
-    <div class="auth-aside-foot">Signed in staff only. Every change is recorded in the activity log.</div>
-  </aside>`;
+const DEFAULT_PRIMARY = '#0f766e';
+const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const rgbHex = (rgb) => '#' + rgb.map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('');
+const mixHex = (a, b, t) => rgbHex(hexRgb(a).map((v, i) => v + (hexRgb(b)[i] - v) * t)); // t = share of b
+const rgba = (hex, alpha) => `rgba(${hexRgb(hex).join(', ')}, ${alpha})`;
+function luminance(hex) {
+  const [r, g, b] = hexRgb(hex).map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a, b) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+// Moves a colour towards black (darker) or white (lighter) until it reads well on `bg`.
+function readableOn(hex, bg, ratio) {
+  const towards = luminance(bg) > 0.4 ? '#000000' : '#ffffff';
+  let c = hex;
+  for (let t = 0.05; contrast(c, bg) < ratio && t <= 1; t += 0.05) c = mixHex(hex, towards, t);
+  return c;
+}
+// Text on a coloured button: white or near-black, whichever reads better.
+const onColour = (bg) => (contrast(bg, '#ffffff') >= contrast(bg, '#111827') ? '#ffffff' : '#111827');
+
+// CSS that overrides the built-in colour tokens; '' when the shop uses the built-in colours.
+function colourCss({ primary = '', sidebar = '' } = {}) {
+  if (!primary && !sidebar) return '';
+  const base = primary || DEFAULT_PRIMARY;
+  const accent = (surface, isDark) => {
+    const p = readableOn(base, surface, 4.5);
+    return {
+      '--primary': p,
+      '--primary-hover': isDark ? mixHex(p, '#ffffff', 0.12) : mixHex(p, '#000000', 0.15),
+      '--primary-light': mixHex(p, '#ffffff', 0.25),
+      '--primary-soft': isDark ? mixHex(surface, p, 0.2) : mixHex('#ffffff', p, 0.1),
+      '--primary-ring': rgba(p, isDark ? 0.32 : 0.22),
+      '--on-primary': onColour(p),
+    };
+  };
+  const menu = (side) => {
+    const light = luminance(side) > 0.4;
+    const accentOnMenu = readableOn(base, side, 3);
+    return {
+      '--side-bg': side,
+      '--side-text': light ? mixHex(side, '#0f172a', 0.8) : mixHex(side, '#ffffff', 0.8),
+      '--side-muted': light ? mixHex(side, '#0f172a', 0.55) : mixHex(side, '#ffffff', 0.5),
+      '--side-strong': light ? '#0f172a' : '#ffffff',
+      '--side-hover': light ? 'rgba(15, 23, 42, .06)' : 'rgba(255, 255, 255, .07)',
+      '--side-line': light ? 'rgba(15, 23, 42, .1)' : 'rgba(255, 255, 255, .09)',
+      '--side-accent': accentOnMenu,
+      '--side-active': rgba(accentOnMenu, light ? 0.14 : 0.18),
+    };
+  };
+  const block = (vars) => Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ');
+  const lightVars = { ...accent('#ffffff', false), ...menu(sidebar || '#0f1a19') };
+  const darkVars = { ...accent('#151b1a', true), ...menu(sidebar || '#0a0f0e') };
+  return `:root { ${block(lightVars)} }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${block(darkVars)} } }
+:root[data-theme="dark"] { ${block(darkVars)} }`;
+}
+
+// Applies the shop's colours (or a preview of them) to the whole page.
+function applyColours(colors = state.branding?.colors) {
+  let el = document.getElementById('shop-colours');
+  if (!el) {
+    el = document.createElement('style');
+    el.id = 'shop-colours';
+    document.head.append(el);
+  }
+  el.textContent = colourCss(colors || {});
+}
+
+// ---------- auth screens ----------
 
 async function renderAuth() {
   const { needsSetup, setupAllowed } = await api('GET', '/api/setup');
@@ -495,7 +558,7 @@ async function renderAuth() {
   // The owner account can only be created on the shop computer itself.
   if (needsSetup && !setupAllowed) {
     $('#app').innerHTML = `
-      <div class="auth">${authAside()}<div class="auth-main"><div class="auth-card">
+      <div class="auth"><div class="auth-main"><div class="auth-card">
         ${brandMark('Shop logo')}
         <h1>Shop not set up yet</h1>
         <p class="muted">For safety, the owner account can only be created on the computer running the portal.
@@ -504,11 +567,11 @@ async function renderAuth() {
     return;
   }
   $('#app').innerHTML = `
-    <div class="auth">${authAside()}<div class="auth-main">
+    <div class="auth"><div class="auth-main">
       <form class="auth-card" novalidate>
         ${brandMark('Shop logo')}
         <h1>${needsSetup ? 'Set up your shop' : 'Sign in'}</h1>
-        <p class="muted">${needsSetup ? 'Create the owner (admin) account to get started.' : 'Welcome back. Sign in to manage your shop.'}</p>
+        ${needsSetup ? '<p class="muted">Create the owner (admin) account to get started.</p>' : ''}
         <div class="error-msg hidden"></div>
         ${needsSetup ? `
           <div class="field"><label>Shop name</label><input name="shop_name" placeholder="e.g. Corner Market" required></div>
@@ -538,7 +601,7 @@ async function renderAuth() {
 function renderTwoStep(ticket) {
   let recovery = false;
   $('#app').innerHTML = `
-    <div class="auth">${authAside()}<div class="auth-main">
+    <div class="auth"><div class="auth-main">
       <form class="auth-card" novalidate>
         ${brandMark('Shop logo')}
         <h1>Two-step login</h1>
@@ -626,9 +689,9 @@ function renderShell() {
     <div class="shell ${store.get('nav') === 'collapsed' ? 'collapsed' : ''}">
       <div class="nav-backdrop"></div>
       <aside class="sidebar">
-        <div class="brand">${brandMark()}<span>${esc(state.settings.shop_name)}</span></div>
+        <div class="brand">${brandMark()}<span>${esc(state.settings.shop_name)}</span>
+          <button type="button" class="nav-collapse" id="nav-collapse" title="Collapse / expand the menu" aria-label="Collapse menu">${icon('chevrons', 18)}</button></div>
         <nav class="nav">${nav}</nav>
-        <button type="button" class="nav-collapse" id="nav-collapse" title="Collapse menu">${icon('collapse')}<span>Collapse</span></button>
       </aside>
       <div class="content">
         <header class="topbar">
@@ -689,6 +752,7 @@ document.addEventListener('click', (e) => {
 
 async function router() {
   if (!state.user) return;
+  applyColours();
   let [name, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
   const pg = PAGES[name];
   if (!pg || (pg.adminOnly && !isAdmin()) || (pg.perms && !can(...pg.perms))) name = 'dashboard';
@@ -2508,6 +2572,27 @@ async function uploadBranding(kind, png) {
   return data;
 }
 
+// The part of a picture that isn't transparent, plus a 2% margin. Only see-through edges are cut:
+// a logo on a white or coloured background keeps it.
+function artworkBounds(ctx, width, height) {
+  const data = ctx.getImageData(0, 0, width, height).data;
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > 16) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return { x: 0, y: 0, w: width, h: height }; // nothing visible: keep as is
+  const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.02);
+  const x = Math.max(0, minX - pad), y = Math.max(0, minY - pad);
+  return { x, y, w: Math.min(width, maxX + pad + 1) - x, h: Math.min(height, maxY + pad + 1) - y };
+}
+
 async function resizeImage(file, { w, h, square = false }) {
   if (!/^image\//.test(file.type)) throw new Error('Choose a picture (PNG, JPEG, WebP, SVG or GIF)');
   if (file.size > 10 * 1024 * 1024) throw new Error('The picture is too large (max 10 MB)');
@@ -2516,13 +2601,23 @@ async function resizeImage(file, { w, h, square = false }) {
     const img = new Image();
     img.src = url;
     await img.decode().catch(() => { throw new Error('This picture could not be opened'); });
-    const iw = img.naturalWidth || w, ih = img.naturalHeight || h;
+    // Draw it once at up to 2000 px, then cut off empty transparent margins around the artwork
+    // (logos are often exported with lots of empty space, which would make them look tiny).
+    const fw = img.naturalWidth || w, fh = img.naturalHeight || h;
+    const pre = Math.min(1, 2000 / fw, 2000 / fh);
+    const src = document.createElement('canvas');
+    src.width = Math.max(1, Math.round(fw * pre));
+    src.height = Math.max(1, Math.round(fh * pre));
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    sctx.drawImage(img, 0, 0, src.width, src.height);
+    const { x: sx, y: sy, w: iw, h: ih } = artworkBounds(sctx, src.width, src.height);
+
     const scale = Math.min(1, w / iw, h / ih);
     const dw = Math.max(1, Math.round(iw * scale)), dh = Math.max(1, Math.round(ih * scale));
     const canvas = document.createElement('canvas');
     canvas.width = square ? Math.max(dw, dh) : dw;
     canvas.height = square ? Math.max(dw, dh) : dh;
-    canvas.getContext('2d').drawImage(img, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+    canvas.getContext('2d').drawImage(src, sx, sy, iw, ih, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('This picture could not be converted');
     return blob;
@@ -2531,11 +2626,101 @@ async function resizeImage(file, { w, h, square = false }) {
   }
 }
 
+const ACCENT_PRESETS = [
+  ['', 'Teal (default)', DEFAULT_PRIMARY], ['#2563eb', 'Blue'], ['#4f46e5', 'Indigo'], ['#7c3aed', 'Purple'], ['#db2777', 'Pink'],
+  ['#dc2626', 'Red'], ['#ea580c', 'Orange'], ['#ca8a04', 'Gold'], ['#65a30d', 'Lime green'], ['#16a34a', 'Green'], ['#475569', 'Slate'],
+];
+const MENU_PRESETS = [
+  ['', 'Charcoal (default)', '#0f1a19'], ['#0f172a', 'Midnight'], ['#1f2937', 'Graphite'], ['#172554', 'Navy'], ['#14532d', 'Forest'],
+  ['#3b0764', 'Plum'], ['#450a0a', 'Maroon'], ['#f8fafc', 'Light'], ['#ffffff', 'White'],
+];
+
+function appearanceCard() {
+  const row = (name, label, presets, help) => `
+    <div class="field" data-colour="${name}">
+      <label>${label}</label>
+      <div class="swatches">
+        ${presets.map(([value, title, show]) => `<button type="button" class="swatch" data-value="${value}" title="${esc(title)}" aria-label="${esc(title)}" style="--c:${show || value}"></button>`).join('')}
+        <span class="swatch-custom" title="Any colour"><input type="color" aria-label="${label}: any colour"> <span data-code></span></span>
+      </div>
+      <div class="muted" style="font-size:12px">${help}</div>
+    </div>`;
+  return `<div class="card" id="s-appearance">
+      <div class="card-head"><h2>Appearance</h2></div>
+      <div class="card-pad">
+        <div class="appearance-preview" aria-hidden="true">
+          <div class="pv-side"><i class="on"></i><i></i><i></i><i></i></div>
+          <div class="pv-main"><b></b><span>Button</span></div>
+        </div>
+        ${row('primary', 'Accent colour', ACCENT_PRESETS, 'Buttons, links, the selected page and highlights.')}
+        ${row('sidebar', 'Menu colour', MENU_PRESETS, 'The menu on the left and the sign-in page. Text switches to dark on light colours.')}
+        <div class="muted" style="font-size:12px;margin:-2px 0 12px">Colours apply to everyone, in light and dark mode. Shades are adjusted so text stays readable.</div>
+        <div class="toolbar"><button type="button" class="btn primary" id="ap-save" disabled>Save colours</button>
+          <button type="button" class="btn" id="ap-reset">Use default colours</button></div>
+      </div>
+    </div>`;
+}
+
+// Clicking a colour previews it on the whole page at once; Save keeps it for everyone.
+function bindAppearance() {
+  const saved = { primary: '', sidebar: '', ...(state.branding?.colors || {}) };
+  const draft = { ...saved };
+  const card = $('#s-appearance');
+  const draw = () => {
+    for (const box of $$('[data-colour]', card)) {
+      const name = box.dataset.colour;
+      const value = draft[name];
+      const preset = $$('.swatch', box).find((b) => b.dataset.value === value);
+      $$('.swatch', box).forEach((b) => b.classList.toggle('active', b === preset));
+      $('input[type=color]', box).value = value || $$('.swatch', box)[0].style.getPropertyValue('--c').trim();
+      $('[data-code]', box).textContent = preset ? '' : value;
+    }
+    $('#ap-save').disabled = draft.primary === saved.primary && draft.sidebar === saved.sidebar;
+    $('#ap-reset').disabled = !draft.primary && !draft.sidebar;
+    applyColours(draft);
+  };
+  for (const box of $$('[data-colour]', card)) {
+    const name = box.dataset.colour;
+    $$('.swatch', box).forEach((b) => (b.onclick = () => {
+      draft[name] = b.dataset.value;
+      draw();
+    }));
+    $('input[type=color]', box).oninput = (e) => {
+      draft[name] = e.target.value.toLowerCase();
+      draw();
+    };
+  }
+  $('#ap-reset').onclick = () => {
+    draft.primary = '';
+    draft.sidebar = '';
+    draw();
+  };
+  $('#ap-save').onclick = async () => {
+    try {
+      const settings = await api('PUT', '/api/settings', { primary_color: draft.primary, sidebar_color: draft.sidebar });
+      // A portal server started before this feature existed ignores the colours: say so instead of failing quietly.
+      if (settings.primary_color !== draft.primary || settings.sidebar_color !== draft.sidebar) {
+        throw new Error('The colours were not saved. The portal server is running older code: restart it (Ctrl+C, then npm start) and try again.');
+      }
+      state.settings = settings;
+      await loadBranding();
+      toast('Colours saved for everyone');
+      renderShell();
+      router();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+  draw();
+}
+
 async function pageSettings(page) {
   const twoStep = await api('GET', '/api/2fa');
   page.innerHTML = `
     <div class="page-head" data-no-export><h1>Settings</h1></div>
-    <div class="grid half" style="align-items:start">
+    <div class="settings-cols ${can('settings.manage') ? '' : 'single'}">
+      ${can('settings.manage') ? `<section class="settings-col" aria-label="Shop">
+        <div class="col-title">Shop</div>` : ''}
       ${can('settings.manage') ? `<form class="card" id="s-shop" novalidate>
         <div class="card-head"><h2>Shop</h2></div>
         <div class="card-pad">
@@ -2572,6 +2757,10 @@ async function pageSettings(page) {
           <div class="muted" style="font-size:12px">PNG, JPEG, WebP, SVG or GIF. Pictures are resized automatically.</div>
         </div>
       </div>` : ''}
+      ${can('settings.manage') ? appearanceCard() : ''}
+      ${can('settings.manage') ? '</section>' : ''}
+      <section class="settings-col" aria-label="Your account">
+        <div class="col-title">Your account</div>
       <div class="card">
         <div class="card-head"><h2>Two-step login</h2><span class="badge ${twoStep.enabled ? 'ok' : 'warn'}">${twoStep.enabled ? 'On' : 'Off'}</span></div>
         <div class="card-pad">
@@ -2594,6 +2783,7 @@ async function pageSettings(page) {
           <div class="muted" style="font-size:12px;margin-top:8px">Changing your password also signs you out everywhere else.</div>
         </div>
       </form>
+      </section>
     </div>`;
 
   const bindForm = (id, fn) => {
@@ -2658,6 +2848,7 @@ async function pageSettings(page) {
       }
     };
   });
+  if ($('#s-appearance')) bindAppearance();
   bindForm('#s-pass', async (data, f) => {
     const r = await api('POST', '/api/password', data);
     f.reset();

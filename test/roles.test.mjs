@@ -131,7 +131,7 @@ test('logo & icon: only "settings.manage" may change them, anyone may view them,
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
   const put = (kind, body, cookie, type = 'application/octet-stream') => call('PUT', `/api/branding/${kind}`, { cookie, body, type });
 
-  assert.deepEqual((await call('GET', '/api/branding')).json, { logo: null, icon: null });
+  assert.deepEqual((await call('GET', '/api/branding')).json, { logo: null, icon: null, colors: { primary: '', sidebar: '' } });
   assert.equal((await call('GET', '/api/branding/logo')).status, 404);
   assert.equal((await put('logo', png, cashier)).status, 403);
   assert.equal((await put('logo', png, '')).status, 401);
@@ -158,4 +158,22 @@ test('logo & icon: only "settings.manage" may change them, anyone may view them,
   const log = (await call('GET', '/api/audit', { cookie: owner })).json;
   const actions = (log.rows || log).map((r) => r.action);
   assert.ok(actions.includes('branding.updated') && actions.includes('branding.removed'));
+});
+
+test('appearance colours: only "settings.manage" may change them, only real colours accepted, and everyone (even signed out) gets them', async () => {
+  const set = (body, cookie = owner) => call('PUT', '/api/settings', { cookie, body });
+  assert.equal((await set({ primary_color: '#2563eb' }, cashier)).status, 403);
+  assert.equal((await set({ primary_color: '#2563eb' }, '')).status, 401);
+  for (const bad of ['blue', '#12345', '#1234567', '#gggggg', 'red;}body{display:none', 'url(x)']) {
+    assert.equal((await set({ primary_color: bad })).status, 400, bad);
+    assert.equal((await set({ sidebar_color: bad })).status, 400, bad);
+  }
+  assert.equal((await set({ primary_color: '#2563EB', sidebar_color: ' #F8FAFC ' })).status, 200);
+  assert.deepEqual((await call('GET', '/api/branding')).json.colors, { primary: '#2563eb', sidebar: '#f8fafc' }, 'stored lower-case, public');
+  assert.equal((await call('GET', '/api/me', { cookie: cashier })).json.settings.primary_color, '#2563eb');
+  const log = (await call('GET', '/api/audit', { cookie: owner })).json;
+  const change = log.find((r) => r.action === 'settings.updated' && r.details.includes('primary_color'));
+  assert.deepEqual(JSON.parse(change.details).primary_color, { from: '', to: '#2563eb' });
+  assert.equal((await set({ primary_color: '', sidebar_color: '' })).status, 200, 'back to the built-in colours');
+  assert.deepEqual((await call('GET', '/api/branding')).json.colors, { primary: '', sidebar: '' });
 });

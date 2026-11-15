@@ -15,6 +15,8 @@
   --primary-hover: #0b5f58;
   --primary-soft: #e6f4f2;
   --primary-ring: rgba(15, 118, 110, .22);
+  --primary-light: #14b8a6;   /* lighter end of logo / avatar gradients */
+  --on-primary: #ffffff;      /* text on primary-coloured buttons */
   --danger: #c0262d;
   --danger-soft: #fdeceb;
   --warn: #a45b06;
@@ -29,6 +31,8 @@
   --side-hover: rgba(255, 255, 255, .06);
   --side-active: rgba(45, 212, 191, .14);
   --side-accent: #2dd4bf;
+  --side-strong: #ffffff;     /* brightest text in the menu (shop name, hovered and active pages) */
+  --side-line: rgba(255, 255, 255, .08);
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05);
@@ -36,7 +40,7 @@
   --shadow-lg: 0 20px 48px rgba(16, 24, 40, .18);
   --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --side-w: 248px;
+  --side-w: 272px;
   --top-h: 60px;
   color-scheme: light;
 }
@@ -95,33 +99,40 @@ a:hover { color: var(--primary-hover); }
 .shell { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns .2s ease; }
 .content { min-width: 0; display: flex; flex-direction: column; }
 
-.sidebar { background: var(--side-bg); color: var(--side-text); padding: 16px 12px 12px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.sidebar { background: var(--side-bg); color: var(--side-text); padding: 16px 12px 12px; display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
+/* In a short window the menu scrolls; nothing in it is squeezed (the logo would spill over the divider). */
+.sidebar > * { flex-shrink: 0; }
+.sidebar { border-right: 1px solid var(--side-line); }
+/* The logo stays in place; only the list of pages scrolls when the window is short. Its side padding
+   (cancelled by the negative margin) keeps the active-page marker visible. */
+.sidebar > .nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 0 -12px; padding: 0 12px 8px; scrollbar-width: thin; scrollbar-color: var(--side-line) transparent; }
 /* Logo and shop name, set apart from the menu by space and a thin divider. */
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; margin-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, .08); font-weight: 700; font-size: 15px; color: #fff; letter-spacing: -.01em; min-height: 52px; }
+.brand { position: relative; display: flex; align-items: center; gap: 10px; padding: 4px 36px 16px 8px; margin-bottom: 14px; border-bottom: 1px solid var(--side-line); font-weight: 700; font-size: 15px; color: var(--side-strong); letter-spacing: -.01em; min-height: 52px; }
 .brand > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.brand-logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #14b8a6, #0f766e); display: grid; place-items: center; color: #fff; flex: none; box-shadow: 0 2px 8px rgba(20, 184, 166, .35); }
+.brand-logo { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, var(--primary-light), var(--primary)); display: grid; place-items: center; color: var(--on-primary); flex: none; box-shadow: 0 2px 8px var(--primary-ring); }
 .nav { display: flex; flex-direction: column; gap: 14px; }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
 .nav-label { font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--side-muted); padding: 0 10px 4px; white-space: nowrap; }
 .nav a { position: relative; display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 8px; color: var(--side-text); text-decoration: none; font-weight: 500; white-space: nowrap; transition: background .15s, color .15s; }
-.nav a:hover { background: var(--side-hover); color: #fff; }
-.nav a.active { background: var(--side-active); color: #fff; }
+.nav a:hover { background: var(--side-hover); color: var(--side-strong); }
+.nav a.active { background: var(--side-active); color: var(--side-strong); }
 .nav a.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--side-accent); }
 .nav a.active svg { color: var(--side-accent); }
 .nav svg { width: 18px; height: 18px; flex: none; }
-.nav-collapse { margin-top: auto; display: flex; align-items: center; gap: 11px; font: inherit; font-size: 13px; color: var(--side-muted); background: none; border: 0; border-radius: 8px; padding: 8px 10px; cursor: pointer; white-space: nowrap; }
-.nav-collapse:hover { background: var(--side-hover); color: #fff; }
-.nav-collapse svg { width: 18px; height: 18px; flex: none; }
+/* « button at the top right of the logo area: collapses the menu to icons (and back). */
+.nav-collapse { position: absolute; top: 2px; right: 0; display: grid; place-items: center; width: 30px; height: 30px; color: var(--side-muted); background: none; border: 0; border-radius: 8px; cursor: pointer; }
+.nav-collapse:hover { background: var(--side-hover); color: var(--side-strong); }
 
 /* Collapsed sidebar: icons only (desktop). */
 @media (min-width: 861px) {
   .shell.collapsed { --side-w: 72px; }
-  .shell.collapsed .brand > span, .shell.collapsed .nav a span, .shell.collapsed .nav-label, .shell.collapsed .nav-collapse span { display: none; }
-  .shell.collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
-  .shell.collapsed .brand-img { max-width: 44px; }
-  .shell.collapsed .nav a, .shell.collapsed .nav-collapse { justify-content: center; padding: 10px 0; }
-  .shell.collapsed .nav-group + .nav-group { border-top: 1px solid rgba(255, 255, 255, .07); padding-top: 12px; }
+  .shell.collapsed .brand > span, .shell.collapsed .nav a span, .shell.collapsed .nav-label { display: none; }
+  .shell.collapsed .brand { flex-direction: column; justify-content: center; align-items: center; gap: 10px; padding: 4px 0 14px; }
+  .shell.collapsed .sidebar .brand-img { max-width: 44px; max-height: 44px; }
+  .shell.collapsed .nav-collapse { position: static; }
   .shell.collapsed .nav-collapse svg { transform: scaleX(-1); }
+  .shell.collapsed .nav a { justify-content: center; padding: 10px 0; }
+  .shell.collapsed .nav-group + .nav-group { border-top: 1px solid var(--side-line); padding-top: 12px; }
 }
 
 .topbar { position: sticky; top: 0; z-index: 20; height: var(--top-h); display: flex; align-items: center; gap: 12px; padding: 0 28px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: saturate(160%) blur(10px); border-bottom: 1px solid var(--border); }
@@ -138,7 +149,7 @@ a:hover { color: var(--primary-hover); }
 .user-menu > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 4px 8px 4px 4px; border-radius: 999px; cursor: pointer; color: var(--muted); }
 .user-menu > summary::-webkit-details-marker { display: none; }
 .user-menu > summary:hover, .user-menu[open] > summary { background: var(--surface-3); }
-.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #14b8a6, #0f766e); flex: none; letter-spacing: .02em; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; color: var(--on-primary); background: linear-gradient(135deg, var(--primary-light), var(--primary)); flex: none; letter-spacing: .02em; }
 .user-meta { display: flex; flex-direction: column; line-height: 1.2; text-align: left; }
 .user-meta strong { color: var(--text); font-size: 13px; font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-meta small { font-size: 11.5px; color: var(--muted); }
@@ -241,15 +252,15 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); box-
 .btn { margin: 0; font: inherit; font-weight: 600; font-size: 13.5px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); border-radius: var(--radius-sm); padding: 8px 14px; min-height: 38px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; text-decoration: none; box-shadow: var(--shadow); transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
 .btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--muted); }
 .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--primary-ring); }
-.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .1), inset 0 1px 0 rgba(255, 255, 255, .12); }
-.btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); box-shadow: 0 1px 2px rgba(16, 24, 40, .1), inset 0 1px 0 rgba(255, 255, 255, .12); }
+.btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: var(--on-primary); }
 .btn.danger { color: var(--danger); }
 .btn.danger:hover { background: var(--danger-soft); border-color: var(--danger); }
 .btn.sm { padding: 4px 10px; min-height: 30px; font-size: 12.5px; }
 .btn.lg { min-height: 44px; font-size: 15px; }
 .btn.block { width: 100%; }
 .btn:disabled, .btn:disabled:hover { opacity: .5; cursor: not-allowed; background: var(--surface); color: var(--text-2); border-color: var(--border-strong); }
-.btn.primary:disabled, .btn.primary:disabled:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn.primary:disabled, .btn.primary:disabled:hover { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 .icon-btn { border: 0; background: none; color: inherit; cursor: pointer; padding: 6px; border-radius: 8px; display: inline-grid; place-items: center; transition: background .15s, color .15s; }
 .icon-btn:hover { background: var(--surface-3); }
 
@@ -365,27 +376,20 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); box-
 .toast.error { border-left-color: var(--danger); }
 @media (max-width: 560px) { #toast-root { left: 16px; right: 16px; bottom: 16px; align-items: stretch; } .toast { max-width: none; } }
 
-/* ---------- Sign-in ---------- */
-.auth { min-height: 100vh; display: grid; grid-template-columns: minmax(340px, 44%) 1fr; background: var(--bg); }
-.auth-aside { position: relative; overflow: hidden; color: #e6f3f1; padding: 40px 44px; display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
-  background: radial-gradient(1200px 600px at -10% -20%, rgba(45, 212, 191, .35), transparent 60%), radial-gradient(800px 500px at 120% 120%, rgba(20, 184, 166, .25), transparent 60%), linear-gradient(160deg, #0f1a19, #0b2b28 60%, #0f766e); }
-.auth-aside-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; color: #fff; }
-.auth-aside h2 { font-size: 30px; line-height: 1.2; font-weight: 750; letter-spacing: -.02em; color: #fff; max-width: 420px; }
-.auth-aside ul { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 12px; }
-.auth-aside li { display: flex; align-items: center; gap: 12px; color: #cfe5e2; }
-.auth-aside li svg { flex: none; padding: 7px; width: 32px; height: 32px; border-radius: 9px; background: rgba(255, 255, 255, .08); color: #5eead4; }
-.auth-aside-foot { font-size: 12.5px; color: #8fb3ae; }
+/* ---------- Sign-in: one card in the middle of a plain page ---------- */
+.auth { min-height: 100vh; display: grid; background: var(--bg); }
 .auth-main { display: grid; place-items: center; padding: 32px 16px; }
-.auth-card { width: 100%; max-width: 400px; }
-.auth-card > .brand-logo, .auth-card > .brand-img { display: none; }
-.auth h1 { margin: 0 0 6px; font-size: 26px; }
-.auth p { margin: 0 0 24px; }
+.auth-card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-md); padding: 32px 32px 28px; }
+/* The shop's logo (or the default mark) centred at the top of the card. */
+.auth-card > .brand-logo { width: 48px; height: 48px; border-radius: 12px; margin: 0 auto 22px; }
+.auth-card > .brand-logo svg { width: 24px; height: 24px; }
+.auth-card > .brand-img { max-height: 84px; max-width: 240px; margin: 0 auto 22px; }
+.auth h1 { margin: 0 0 18px; font-size: 22px; text-align: center; }
+.auth h1 + p { margin: -10px 0 20px; text-align: center; }
 .auth .field input { min-height: 44px; }
-@media (max-width: 860px) {
-  .auth { grid-template-columns: 1fr; }
-  .auth-aside { display: none; }
-  .auth-card > .brand-logo, .auth-card > .brand-img { display: grid; margin-bottom: 18px; }
-  .auth-card > .brand-img { display: block; }
+@media (max-width: 480px) {
+  .auth-main { align-items: start; padding-top: 48px; }
+  .auth-card { padding: 26px 20px 22px; }
 }
 
 /* ---------- Receipt & printing ---------- */
@@ -439,12 +443,36 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); box-
 
 /* ---------- Shop logo & icon (Settings → Logo & icon) ---------- */
 .brand-img { display: block; max-height: 36px; max-width: 120px; width: auto; height: auto; object-fit: contain; flex: none; }
-.auth .brand-img { max-height: 64px; max-width: 220px; }
-.auth-aside .brand-img { max-height: 40px; max-width: 160px; border-radius: 6px; background: #fff; padding: 3px; }
 .brand-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
 .brand-preview { height: 64px; border: 1px dashed var(--border-strong); border-radius: 8px; display: grid; place-items: center; overflow: hidden; background: var(--surface-2); font-size: 12px; }
 .brand-preview.icon { width: 64px; }
 .brand-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.print-logo img { max-height: 70px; max-width: 220px; margin-bottom: 6px; }
-.sidebar .brand:has(.brand-img) { flex-direction: column; align-items: flex-start; gap: 8px; }
-.sidebar .brand-img { max-height: 56px; max-width: 100%; border-radius: 8px; background: #fff; padding: 4px; }
+.print-logo img { max-height: 70px; max-width: 260px; margin-bottom: 6px; }
+/* With an uploaded logo: logo centred and large, the shop name centred underneath. */
+.sidebar .brand:has(.brand-img) { flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 6px 32px 18px; }
+.sidebar .brand:has(.brand-img) > span { white-space: normal; font-size: 16px; font-weight: 500; color: var(--side-strong); letter-spacing: 0; }
+/* The logo as uploaded (no frame): a wide logo uses the full width, a tall one up to 104px high.
+   A logo with a transparent background blends into the dark menu. */
+.sidebar .brand-img { max-height: 104px; max-width: 100%; }
+
+/* ---------- Settings → Appearance ---------- */
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 4px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--surface); background: var(--c); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; transition: transform .1s, box-shadow .15s; }
+.swatch:hover { transform: scale(1.08); }
+.swatch.active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+.swatch-custom { position: relative; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.swatch-custom input[type="color"] { width: 34px; height: 30px; min-height: 0; padding: 2px; border-radius: 8px; cursor: pointer; }
+.appearance-preview { display: grid; grid-template-columns: 76px 1fr; height: 92px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 6px 0 14px; }
+.appearance-preview .pv-side { background: var(--side-bg); padding: 10px 8px; display: flex; flex-direction: column; gap: 6px; }
+.appearance-preview .pv-side i { display: block; height: 7px; border-radius: 4px; background: var(--side-text); opacity: .35; }
+.appearance-preview .pv-side i.on { background: var(--side-accent); opacity: 1; }
+.appearance-preview .pv-main { background: var(--bg); padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.appearance-preview .pv-main b { display: block; height: 8px; width: 60%; border-radius: 4px; background: var(--border-strong); }
+.appearance-preview .pv-main span { display: inline-block; padding: 5px 12px; border-radius: 7px; background: var(--primary); color: var(--on-primary); font-size: 11.5px; font-weight: 650; }
+
+/* ---------- Settings: two independent columns (shop | your account), so cards never leave gaps ---------- */
+.settings-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.settings-cols.single { grid-template-columns: minmax(0, 720px); }
+.settings-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.col-title { font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 0 2px -8px; }
+@media (max-width: 1100px) { .settings-cols { grid-template-columns: minmax(0, 1fr); } }

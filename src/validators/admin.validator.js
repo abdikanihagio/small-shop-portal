@@ -16,6 +16,14 @@ function readSettings(body) {
   if (body.currency !== undefined) out.currency = str(body.currency, 'Currency', { required: true, max: 5 }).toUpperCase();
   if (body.tax_rate !== undefined) out.tax_rate = pct(body.tax_rate, 'Tax rate');
   if (body.max_staff_discount !== undefined) out.max_staff_discount = pct(body.max_staff_discount, 'Maximum staff discount');
+  // Appearance: "#rrggbb", or empty for the built-in colours.
+  const colour = (v, label) => {
+    const s = String(v ?? '').trim().toLowerCase();
+    if (s && !/^#[0-9a-f]{6}$/.test(s)) throw bad(`${label} must be a colour like #0f766e`);
+    return s;
+  };
+  if (body.primary_color !== undefined) out.primary_color = colour(body.primary_color, 'Accent colour');
+  if (body.sidebar_color !== undefined) out.sidebar_color = colour(body.sidebar_color, 'Menu colour');
   return out;
 }
 

@@ -22,7 +22,8 @@ module.exports = Object.freeze({
 
   // Shop settings created on first run. max_staff_discount: highest discount (% of subtotal)
   // a user without the "discount.unlimited" permission may give.
-  DEFAULT_SETTINGS: Object.freeze({ shop_name: 'My Shop', currency: 'USD', tax_rate: '0', max_staff_discount: '10' }),
+  // primary_color / sidebar_color: the shop's own colours (Settings → Appearance); empty = built-in.
+  DEFAULT_SETTINGS: Object.freeze({ shop_name: 'My Shop', currency: 'USD', tax_rate: '0', max_staff_discount: '10', primary_color: '', sidebar_color: '' }),
 
   // Reference numbers (CUST001, SUPP001, RET001, …). Counters live in settings and only go up.
   PAYMENT_REFS: Object.freeze([
