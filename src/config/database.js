@@ -103,7 +103,11 @@ async function initDatabase() {
     } catch {}
     const host = url.hostname || process.env.PGHOST || 'localhost';
     const port = url.port || process.env.PGPORT || 5432;
-    const where = `${host}:${port} (${process.env.DATABASE_URL ? 'from DATABASE_URL' : 'DATABASE_URL is not set'})`;
+    const source =
+      process.env.DATABASE_URL ? 'from DATABASE_URL'
+      : process.env.DATABASE_URL === '' ? 'DATABASE_URL is set but EMPTY - on a hosting service, check the variable reference'
+      : 'DATABASE_URL is not set';
+    const where = `${host}:${port} (${source})`;
     const why = err.message || [err.code, ...(err.errors || []).map((e) => e.message)].filter(Boolean).join('; ') || 'unknown error';
     err.message = `Cannot connect to PostgreSQL at ${where} (${why}). On this computer, start it with:  docker compose up -d`;
     throw err;
