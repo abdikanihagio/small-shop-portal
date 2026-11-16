@@ -664,7 +664,7 @@ const PAGES = {
   dashboard: { title: 'Dashboard', render: pageDashboard, group: '' },
   sell: { title: 'Pos Sales', render: pageSell, perms: ['sell'], group: 'Sales' },
   sales: { title: 'Sales', render: pageSales, perms: ['sales.view'], group: 'Sales' },
-  shifts: { title: 'Cash closing', render: pageShifts, perms: ['sell', 'accounting'], group: 'Sales' },
+  shifts: { title: 'Cash closing', render: pageShifts, perms: ['sell', 'accounting', 'shifts.close'], group: 'Sales' },
   customers: { title: 'Customers', render: pageCustomers, perms: ['customers.manage'], group: 'Sales' },
   products: { title: 'Products', render: pageProducts, perms: ['products.view', 'products.manage'], group: 'Stock' },
   inventory: { title: 'Inventory', render: pageInventory, perms: ['inventory.view', 'inventory.manage'], group: 'Stock' },
@@ -1474,7 +1474,7 @@ async function showShift(id) {
 async function pageShifts(page, from = datePresets().week[0], to = localDate()) {
   const [cur, shifts] = await Promise.all([can('sell') ? api('GET', '/api/shifts/current') : { shift: null }, api('GET', `/api/shifts?from=${from}&to=${to}`)]);
   const sh = cur.shift;
-  const all = can('accounting');
+  const all = can('accounting', 'shifts.close');
   const reload = () => pageShifts(page, from, to);
   page.innerHTML = `
     <div class="page-head"><h1>Cash closing</h1><div class="toolbar">${dateRangeControls(from, to)}</div></div>
@@ -1504,7 +1504,7 @@ async function pageShifts(page, from = datePresets().week[0], to = localDate()) 
           <td class="num">${money(x.sales_total)}<div class="muted" style="font-size:12px">${x.sales_count} sale${x.sales_count === 1 ? '' : 's'}</div></td>
           <td class="num">${x.expected_cents != null ? money(x.expected_cents) : x.expected_so_far != null ? `${money(x.expected_so_far)}<div class="muted" style="font-size:12px">so far</div>` : '<span class="muted">—</span>'}</td>
           <td class="num">${x.counted_cents == null ? '<span class="muted">—</span>' : money(x.counted_cents)}</td>
-          <td class="keep">${x.status === 'closed' ? differenceBadge(x.difference_cents) : isAdmin() ? `<button class="btn sm" data-close-shift="${x.id}">Close</button>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
+          <td class="keep">${x.status === 'closed' ? differenceBadge(x.difference_cents) : can('shifts.close') ? `<button class="btn sm" data-close-shift="${x.id}">Close</button>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
       </tbody></table>` : '<div class="empty">No shifts in this period</div>'}
     </div>`;
 

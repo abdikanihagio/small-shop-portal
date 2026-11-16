@@ -158,6 +158,23 @@ test('admins can close anyone\'s open shift; cashiers only their own', async () 
   assert.equal(JSON.parse(log.details).cashier, 'cashier');
 });
 
+test('a role with "shifts.close" sees and closes everyone\'s shifts, counting blind', async () => {
+  const role = await ok(as(owner).post('/api/roles', { name: 'Supervisor', permissions: ['shifts.close'] }));
+  await ok(as(owner).post('/api/users', { username: 'super', password: 'Night#Shift2026', role: 'staff', role_id: role.id }));
+  const sup = as(await login('super', 'Night#Shift2026'));
+  await ok(as(cashier).post('/api/shifts/open', { float: 5 }));
+  await ok(as(cashier).post('/api/sales', { items: [{ product_id: 1, qty: 1 }], payment_method: 'cash' })); // +600
+
+  const open = (await ok(sup.get('/api/shifts'))).find((s) => s.username === 'cashier' && s.status === 'open');
+  assert.ok(open, "the supervisor sees the cashier's shift");
+  assert.equal(open.expected_so_far, undefined, 'no expected cash before counting (blind)');
+  assert.equal((await ok(sup.get(`/api/shifts/${open.id}`))).summary.expected_cash, undefined);
+  assert.equal((await as(stores).post(`/api/shifts/${open.id}/close`, { counted: 11 })).status, 403, 'not for other roles');
+
+  const z = await ok(sup.post(`/api/shifts/${open.id}/close`, { counted: 11 }));
+  assert.deepEqual([z.expected_cents, z.difference_cents, z.closed_by_username], [1100, 0, 'super']);
+});
+
 test('an open shift is listed whatever dates are chosen', async () => {
   const fresh = await startServer();
   const c = (method, p, opts = {}) => request(fresh.base, method, p, opts);
@@ -238,6 +255,6 @@ test('expiry dates must be real dates; backups include shifts and batches', asyn
   const b = await ok(as(owner).post('/api/backups'));
   const file = Buffer.from(await (await fetch(`${S.base}/api/backups/${b.name}/download`, { headers: { Cookie: owner } })).arrayBuffer());
   const doc = JSON.parse(zlib.gunzipSync(file).toString());
-  assert.equal(doc.tables.cash_shifts.length, 8, 'every shift opened in these tests');
+  assert.equal(doc.tables.cash_shifts.length, 9, 'every shift opened in these tests');
   assert.equal(doc.tables.stock_batches.length, 3, 'three lines had expiry dates');
 });

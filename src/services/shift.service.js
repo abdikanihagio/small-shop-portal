@@ -64,7 +64,8 @@ const close = (actor, input) =>
     return closeOpenShift(actor, shift, input);
   });
 
-// Admins: anyone's open shift (e.g. a cashier who left without closing). The admin counts that drawer.
+// Admins and roles with "shifts.close": anyone's open shift (e.g. a cashier who left without closing).
+// The closer counts that drawer.
 const closeFor = (actor, id, input) =>
   transaction(async () => {
     const shift = await ShiftModel.findById(id);
@@ -73,19 +74,21 @@ const closeFor = (actor, id, input) =>
     return closeOpenShift(actor, shift, input);
   });
 
-// Accounting sees every shift; anyone else only their own.
+// Accounting and closers ("shifts.close") see every shift; anyone else only their own.
+const seesAllShifts = (actor) => can(actor, 'accounting') || can(actor, 'shifts.close');
+
 async function report(actor, id) {
   const shift = await ShiftModel.findById(id);
   if (!shift) throw notFound('Shift not found');
-  if (shift.user_id !== actor.id && !can(actor, 'accounting')) throw forbidden('You can only see your own shifts');
+  if (shift.user_id !== actor.id && !seesAllShifts(actor)) throw forbidden('You can only see your own shifts');
   return view(actor, shift);
 }
 
 // Shifts in a period. Each row has its sales; open shifts show their figures so far (the expected
-// cash only for Accounting, as on the shift itself).
+// cash only for Accounting, as on the shift itself: a closer counts blind too).
 async function list(actor, { from, to }) {
   const all = can(actor, 'accounting');
-  const rows = await ShiftModel.list({ from, to, userId: all ? null : actor.id });
+  const rows = await ShiftModel.list({ from, to, userId: seesAllShifts(actor) ? null : actor.id });
   const now = rows.some((r) => r.status === 'open') ? await ShiftModel.lastIds() : null;
   const out = [];
   for (const { summary, start_ids, end_ids, ...s } of rows) {

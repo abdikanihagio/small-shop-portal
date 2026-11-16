@@ -5,6 +5,7 @@ const PERMISSIONS = Object.freeze([
   { key: 'discount.unlimited', label: 'Give discounts above the staff limit', group: 'Sales' },
   { key: 'sales.view', label: 'See sales history', group: 'Sales' },
   { key: 'sales.refund', label: 'Void sales and return items', group: 'Sales' },
+  { key: 'shifts.close', label: "Cash closing: see everyone's shifts and close them", group: 'Sales' },
   { key: 'products.view', label: 'See products', group: 'Products & stock' },
   { key: 'products.manage', label: 'Add and edit products, prices and imports', group: 'Products & stock' },
   { key: 'costs.view', label: 'See cost prices, margins and stock value', group: 'Products & stock' },
