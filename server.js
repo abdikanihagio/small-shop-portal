@@ -1,7 +1,7 @@
 // Small Shop Portal — starts the web server. The application itself lives in src/ (see src/app.js).
 const http = require('node:http');
 const https = require('node:https');
-const { PORT, HOST } = require('./src/config/environment');
+const { PORT, HOST, TRUST_PROXY } = require('./src/config/environment');
 const { tlsOptions, useTls } = require('./src/config/tls');
 const { initDatabase, closeDatabase } = require('./src/config/database');
 const { createApp } = require('./src/app');
@@ -15,7 +15,8 @@ initDatabase().then(
   () =>
     server.listen(PORT, HOST, () => {
       console.log(`Small Shop Portal running at ${useTls ? 'https' : 'http'}://localhost:${PORT}`);
-      if (!useTls) console.log('Note: not using HTTPS. Run scripts\\create-https-cert.ps1 to encrypt connections from other devices.');
+      if (TRUST_PROXY) console.log(`Behind ${TRUST_PROXY} HTTPS prox${TRUST_PROXY === 1 ? 'y' : 'ies'} (TRUST_PROXY): visitors use https`);
+      else if (!useTls) console.log('Note: not using HTTPS. Run scripts\\create-https-cert.ps1 to encrypt connections from other devices.');
       if (HOST) console.log(`Only accepting connections on ${HOST}`);
       backups.startSchedule(); // a daily automatic backup while the portal runs
     }),

@@ -53,6 +53,42 @@ This creates a certificate in `data\tls\`. Restart the portal and it uses `https
 `data\tls\portal.cer` on each tablet/phone so its browser trusts the portal. Keep the portal PC on the
 staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `TLS_PFX`/`TLS_PASSPHRASE`.)
 
+### Online with your own domain (Railway)
+
+The portal can also run on a hosting service, reachable from anywhere at e.g. `https://shop.example.com`.
+`railway.json` holds the start and health-check settings for [Railway](https://railway.com).
+
+1. **Create the project.** On Railway: *New Project → Deploy from GitHub repo* → this repository. Then
+   *New → Database → PostgreSQL* in the same project.
+2. **Variables** of the portal service (*Variables* tab):
+
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway fills it in) |
+   | `TRUST_PROXY` | `1` (Railway's HTTPS sits in front of the portal) |
+   | `TZ` | the shop's time zone, e.g. `Africa/Nairobi` (Railway's servers run on UTC) |
+   | `DATA_DIR` | `/data` |
+
+3. **Keep backups.** Add a *Volume* to the portal service, mounted at `/data`. Without it the daily
+   backups are lost at every redeploy. Download one now and then as well (Settings → Backups).
+4. **Bring your data.** First-time setup only works on the computer running the portal, so move the
+   shop's data instead: make a backup on the shop computer (Settings → Backups → Back up now). In
+   Railway, open the Postgres service → *Connect* → copy the **public** connection URL. Then, on the
+   shop computer, in PowerShell:
+
+   ```powershell
+   $env:DATABASE_URL = "<the public URL>"; npm run backup -- restore data\backups\<backup file>
+   ```
+
+   Type `RESTORE` when asked. Everything (users, passwords, products, sales) is now online.
+   Close that PowerShell window afterwards so the URL is not reused by mistake.
+5. **Your domain.** Railway: portal service → *Settings → Networking → Custom Domain* → enter
+   `shop.example.com`; it shows a CNAME target. At your domain provider (GoDaddy: *My Products → DNS →
+   Add record*) add a **CNAME** record, name `shop`, value that target. Railway issues the HTTPS
+   certificate itself; it can take up to an hour.
+6. **Before you share the address:** turn on two-step login for every account (Settings → Account):
+   the sign-in page is now on the internet.
+
 ## What's included
 
 | Area | Features |

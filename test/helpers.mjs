@@ -98,14 +98,15 @@ after(async () => {
 
 // One API request. Like the portal page, changes carry the X-Requested-With header
 // (portalHeader: false leaves it out). A string or Buffer body is sent as-is with `type`.
-export async function request(base, method, p, { cookie, body, type = 'application/json', portalHeader = true, origin } = {}) {
-  const headers = {};
+// `headers` adds more request headers (e.g. what a hosting proxy sends); redirects are not followed.
+export async function request(base, method, p, { cookie, body, type = 'application/json', portalHeader = true, origin, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   if (cookie) headers.Cookie = cookie;
   if (body !== undefined) headers['Content-Type'] = type;
   if (portalHeader && method !== 'GET') headers['X-Requested-With'] = 'shop-portal';
   if (origin) headers.Origin = origin;
   const t = performance.now();
-  const r = await fetch(base + p, { method, headers, body: body === undefined ? undefined : typeof body === 'string' || body instanceof Uint8Array ? body : JSON.stringify(body) });
+  const r = await fetch(base + p, { method, headers, redirect: 'manual', body: body === undefined ? undefined : typeof body === 'string' || body instanceof Uint8Array ? body : JSON.stringify(body) });
   const text = await r.text();
   let json;
   try {

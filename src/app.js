@@ -9,7 +9,8 @@ const { authenticate } = require('./middleware/authenticate');
 const { authorize } = require('./middleware/authorize');
 const { requestGuard } = require('./middleware/request-guard');
 const { handleError } = require('./middleware/error-handler');
-const { readRaw, readJson, sendJson, clientIp } = require('./utils/http');
+const { readRaw, readJson, sendJson, clientIp, visitorHost } = require('./utils/http');
+const { TRUST_PROXY } = require('./config/environment');
 
 function createApp() {
   const router = buildRouter();
@@ -28,6 +29,11 @@ function createApp() {
   }
 
   return async function app(req, res) {
+    // Behind a hosting proxy, a visitor who typed http:// is sent to the https:// address.
+    if (TRUST_PROXY && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'http') {
+      res.writeHead(308, { Location: `https://${visitorHost(req)}${req.url}` });
+      return res.end();
+    }
     securityHeaders(req, res);
     const url = new URL(req.url, 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url.pathname);

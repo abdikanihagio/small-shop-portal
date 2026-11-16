@@ -1,5 +1,6 @@
 // Low-level request/response helpers for node:http.
 const { MAX_BODY } = require('../config/constants');
+const { TRUST_PROXY } = require('../config/environment');
 const { HttpError, bad } = require('./http-error');
 
 function readRaw(req, limit = MAX_BODY) {
@@ -65,12 +66,25 @@ function parseCookies(req) {
   return out;
 }
 
-const clientIp = (req) => String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+const socketIp = (req) => String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+
+// The visitor's address. Behind TRUST_PROXY proxies, each proxy adds the address it saw to the end of
+// X-Forwarded-For, so the visitor is that many places from the end; anything further left was written
+// by the visitor and is ignored.
+function clientIp(req) {
+  if (!TRUST_PROXY) return socketIp(req);
+  const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return (hops[hops.length - TRUST_PROXY] || socketIp(req)).replace(/^::ffff:/, '');
+}
+
+// The address the visitor typed (behind a proxy, the proxy may pass it as X-Forwarded-Host).
+const visitorHost = (req) => String((TRUST_PROXY && req.headers['x-forwarded-host']) || req.headers.host || '').split(',')[0].trim();
 
 // True only for a request made on this computer to a local address (not a look-alike website name).
+// Behind a hosting proxy nothing is local.
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 const isLoopback = (ip) => ip === '127.0.0.1' || ip === '::1';
 const hostName = (req) => String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '');
-const isLocalRequest = (req) => isLoopback(clientIp(req)) && LOCAL_HOSTNAMES.has(hostName(req));
+const isLocalRequest = (req) => !TRUST_PROXY && isLoopback(socketIp(req)) && LOCAL_HOSTNAMES.has(hostName(req));
 
-module.exports = { readRaw, readJson, sendJson, sendDownload, sendCsv, XLSX_TYPE, parseCookies, clientIp, isLocalRequest };
+module.exports = { readRaw, readJson, sendJson, sendDownload, sendCsv, XLSX_TYPE, parseCookies, clientIp, visitorHost, isLocalRequest };

@@ -25,6 +25,10 @@ module.exports = Object.freeze({
   BACKUP_DIR: process.env.BACKUP_DIR || path.join(process.env.DATA_DIR || path.join(ROOT_DIR, 'data'), 'backups'),
   // First automatic-backup check after start (ms); then every hour.
   BACKUP_FIRST_CHECK_MS: Number(process.env.BACKUP_FIRST_CHECK_MS) || 60_000,
+  // Behind a hosting service's HTTPS proxy (Railway, Render…): how many proxies stand in front of the
+  // portal (usually 1). Then the visitor's address comes from X-Forwarded-For, cookies are HTTPS-only
+  // and plain HTTP is redirected. Leave unset (0) when the portal is reached directly.
+  TRUST_PROXY: Math.max(0, Math.floor(Number(process.env.TRUST_PROXY) || 0)),
   TLS_PFX: process.env.TLS_PFX || '',
   TLS_PASSPHRASE: process.env.TLS_PASSPHRASE,
   TLS_CERT: process.env.TLS_CERT || '',

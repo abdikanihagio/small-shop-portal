@@ -20,4 +20,7 @@ function loadTls() {
 
 const tlsOptions = loadTls();
 
-module.exports = { tlsOptions, useTls: !!tlsOptions };
+// Visitors use HTTPS: either the portal's own certificate, or a hosting proxy in front of it (TRUST_PROXY).
+const httpsForVisitors = !!tlsOptions || env.TRUST_PROXY > 0;
+
+module.exports = { tlsOptions, useTls: !!tlsOptions, httpsForVisitors };

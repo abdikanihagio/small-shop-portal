@@ -1,6 +1,6 @@
 // Sent with every response. The page only loads its own files, cannot be shown inside another
 // site's frame, and never leaks its address to other sites.
-const { useTls } = require('../config/tls');
+const { httpsForVisitors } = require('../config/tls');
 
 const SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy':
@@ -12,7 +12,7 @@ const SECURITY_HEADERS = Object.freeze({
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  ...(useTls ? { 'Strict-Transport-Security': 'max-age=31536000' } : {}),
+  ...(httpsForVisitors ? { 'Strict-Transport-Security': 'max-age=31536000' } : {}),
 });
 
 function securityHeaders(req, res) {
