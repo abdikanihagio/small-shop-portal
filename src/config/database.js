@@ -95,7 +95,17 @@ async function initDatabase() {
   try {
     await pool.query('SELECT 1');
   } catch (err) {
-    err.message = `Cannot connect to PostgreSQL (${err.message}). Is it running? Start it with:  docker compose up -d`;
+    // Say where it tried (never the password) and why; a refused connection to "localhost" may have
+    // an empty message, so fall back to the error codes.
+    let url = {};
+    try {
+      url = new URL(process.env.DATABASE_URL || 'x:');
+    } catch {}
+    const host = url.hostname || process.env.PGHOST || 'localhost';
+    const port = url.port || process.env.PGPORT || 5432;
+    const where = `${host}:${port} (${process.env.DATABASE_URL ? 'from DATABASE_URL' : 'DATABASE_URL is not set'})`;
+    const why = err.message || [err.code, ...(err.errors || []).map((e) => e.message)].filter(Boolean).join('; ') || 'unknown error';
+    err.message = `Cannot connect to PostgreSQL at ${where} (${why}). On this computer, start it with:  docker compose up -d`;
     throw err;
   }
   await transaction(() => migrate(db));
