@@ -1,12 +1,15 @@
 # The shop's PostgreSQL database. Start it with:  docker compose up -d
-# Reads PGUSER / PGPASSWORD / PGDATABASE / PGPORT from .env. Only this computer can connect (127.0.0.1).
+# Docker creates the ADMINISTRATOR account from .env (PG_ADMIN_USER / PG_ADMIN_PASSWORD; older setups
+# without them use PGUSER / PGPASSWORD). The portal itself signs in with its own restricted account,
+# made by:  node scripts/db-app-account.js
+# Only this computer can connect (127.0.0.1).
 services:
   db:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${PGUSER:-shop}
-      POSTGRES_PASSWORD: ${PGPASSWORD:?Set PGPASSWORD in .env}
+      POSTGRES_USER: ${PG_ADMIN_USER:-${PGUSER:-shop}}
+      POSTGRES_PASSWORD: ${PG_ADMIN_PASSWORD:-${PGPASSWORD:?Set PG_ADMIN_PASSWORD in .env}}
       POSTGRES_DB: ${PGDATABASE:-shop}
     ports:
       - "127.0.0.1:${PGPORT:-5432}:5432"

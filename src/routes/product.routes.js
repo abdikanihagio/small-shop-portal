@@ -10,5 +10,7 @@ module.exports = (route) => {
   route('GET', '/api/inventory/movements', 'perm:inventory.view|inventory.manage', c.movements);
   route('POST', '/api/inventory/restock', 'perm:inventory.manage', c.restock);
   route('POST', '/api/inventory/adjust', 'perm:inventory.manage', c.adjust);
+  route('GET', '/api/inventory/batches', 'perm:inventory.view|inventory.manage', c.batches);
+  route('POST', '/api/inventory/batches/:id/write-off', 'perm:inventory.manage', c.writeOffBatch);
   route('GET', '/api/purchases/:id', 'perm:suppliers.manage|inventory.manage', c.purchase);
 };

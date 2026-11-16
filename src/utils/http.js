@@ -2,14 +2,14 @@
 const { MAX_BODY } = require('../config/constants');
 const { HttpError, bad } = require('./http-error');
 
-function readRaw(req) {
+function readRaw(req, limit = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) {
-        reject(new HttpError(413, 'File or request too large (max 5 MB)'));
+      if (size > limit) {
+        reject(new HttpError(413, `File or request too large (max ${Math.round(limit / 1024 / 1024)} MB)`));
         req.destroy();
       } else chunks.push(c);
     });

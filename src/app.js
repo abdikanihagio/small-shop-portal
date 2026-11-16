@@ -19,7 +19,7 @@ function createApp() {
     const user = await authenticate(req);
     authorize(route.access, user);
     requestGuard(req, route);
-    const body = !['POST', 'PUT'].includes(req.method) ? {} : route.raw ? await readRaw(req) : await readJson(req);
+    const body = !['POST', 'PUT'].includes(req.method) ? {} : route.raw ? await readRaw(req, route.maxBody) : await readJson(req);
     // "actor" is who is acting, for permission checks and the activity log.
     const ip = clientIp(req);
     const actor = user ? { ...user, ip } : { ip };

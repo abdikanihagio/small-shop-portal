@@ -2,7 +2,8 @@
 const products = require('../services/product.service');
 const productImport = require('../services/product-import.service');
 const inventory = require('../services/inventory.service');
-const { id, int } = require('../validators/common.validator');
+const batches = require('../services/batch.service');
+const { id, int, str } = require('../validators/common.validator');
 const { readProduct, readOpeningStock } = require('../validators/product.validator');
 const { readRestock, readAdjustment } = require('../validators/inventory.validator');
 const { sendDownload, XLSX_TYPE } = require('../utils/http');
@@ -29,4 +30,6 @@ module.exports = {
   restock: ({ actor, body }) => inventory.receive(actor, readRestock(body)),
   adjust: ({ actor, body }) => inventory.adjust(actor, readAdjustment(body)),
   purchase: ({ params }) => inventory.purchase(id(params.id)),
+  batches: ({ user }) => batches.list(user),
+  writeOffBatch: ({ actor, params, body }) => batches.writeOff(actor, id(params.id), str(body.reason, 'Reason', { max: 120 }) || 'Expired'),
 };

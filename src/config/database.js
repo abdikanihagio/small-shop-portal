@@ -72,6 +72,23 @@ async function transaction(fn) {
   }
 }
 
+// Runs fn on one connection that sees the whole database as it was at one instant, even while
+// other requests keep changing it (for backups). Read-only.
+async function snapshot(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const result = await tx.run(client, fn);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // Connects and brings the tables up to date. Called once at startup.
 async function initDatabase() {
   const { migrate } = require('../models/schema');
@@ -86,4 +103,4 @@ async function initDatabase() {
 
 const closeDatabase = () => pool.end().catch(() => {});
 
-module.exports = { db, transaction, initDatabase, closeDatabase };
+module.exports = { db, transaction, snapshot, initDatabase, closeDatabase };

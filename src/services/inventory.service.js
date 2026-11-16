@@ -2,6 +2,8 @@
 const ProductModel = require('../models/product.model');
 const StockModel = require('../models/stock.model');
 const SupplierModel = require('../models/supplier.model');
+const BatchModel = require('../models/batch.model');
+const batches = require('./batch.service');
 const audit = require('./audit.service');
 const visibility = require('./visibility.service');
 const { transaction } = require('../config/database');
@@ -28,12 +30,13 @@ const receive = (actor, { items, note, method, supplierId, supplierName }) =>
     const total = safeTotal(items.reduce((a, i) => a + i.qty * i.unitCost, 0), 'Purchase total');
     const purchaseId = await StockModel.createPurchase({ supplierId, supplier, invoice: note, method, total, userId: actor.id });
     const updated = [];
-    for (const { productId, qty, unitCost } of items) {
+    for (const { productId, qty, unitCost, expiry } of items) {
       const p = await ProductModel.findById(productId);
       if (!p) throw notFound('Product not found');
       if (Math.max(p.stock, 0) + qty > MAX_QTY) throw bad(`${p.name}: stock would be over ${MAX_QTY.toLocaleString('en')}`);
       await addStockAtCost(p, qty, unitCost);
       await StockModel.addMovement({ productId, type: 'purchase', qty, unitCost, supplier, note, userId: actor.id, purchaseId });
+      if (expiry) await BatchModel.add({ productId, expiry, qty, unitCost, purchaseId, userId: actor.id });
       updated.push(await ProductModel.findById(productId));
     }
     await audit.record(actor, 'stock.received', 'purchase', purchaseId, { supplier, payment_method: method, total_cents: total, lines: items.length });
@@ -48,6 +51,7 @@ const adjust = (actor, { productId, newCount, note }) =>
     const change = newCount - p.stock;
     if (change === 0) throw bad('New count is the same as current stock');
     await ProductModel.setStock(productId, newCount);
+    if (change < 0) await batches.take(productId, -change); // counted out: off the batch that expires first
     await StockModel.addMovement({ productId, type: 'adjustment', qty: change, unitCost: p.cost_cents, note, userId: actor.id });
     await audit.record(actor, 'stock.adjusted', 'product', productId, { name: p.name, from: p.stock, to: newCount, reason: note });
     return ProductModel.findById(productId);

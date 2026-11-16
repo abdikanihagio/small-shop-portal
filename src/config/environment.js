@@ -21,6 +21,10 @@ module.exports = Object.freeze({
   // Leave HOST empty to accept connections from the shop network; set 127.0.0.1 for this PC only.
   HOST: process.env.HOST || undefined,
   DATA_DIR: process.env.DATA_DIR || path.join(ROOT_DIR, 'data'),
+  // Where backups are kept (default: DATA_DIR\backups). Pointing it at another disk is safer.
+  BACKUP_DIR: process.env.BACKUP_DIR || path.join(process.env.DATA_DIR || path.join(ROOT_DIR, 'data'), 'backups'),
+  // First automatic-backup check after start (ms); then every hour.
+  BACKUP_FIRST_CHECK_MS: Number(process.env.BACKUP_FIRST_CHECK_MS) || 60_000,
   TLS_PFX: process.env.TLS_PFX || '',
   TLS_PASSPHRASE: process.env.TLS_PASSPHRASE,
   TLS_CERT: process.env.TLS_CERT || '',

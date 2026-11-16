@@ -34,6 +34,8 @@ before(async () => {
   const r = await call('POST', '/api/setup', { body: { ...OWNER, shop_name: 'Test' } });
   assert.equal(r.status, 200, 'setup from this computer works');
   admin = sid(r);
+  // These tests sell without opening cash shifts (shifts are tested in shifts-expiry.test.mjs).
+  await call('PUT', '/api/settings', { cookie: admin, body: { require_shift: '0' } });
   await call('POST', '/api/users', { cookie: admin, body: { ...STAFF, role: 'staff' } });
   staff = await login(STAFF.username, STAFF.password);
   await call('POST', '/api/products', { cookie: admin, body: { sku: 'R1', name: 'Rice', cost: 4, price: 10, stock: 500 } });
@@ -212,6 +214,11 @@ test('M5: important actions are written to an append-only audit log that staff c
   await assert.rejects(sql(S.database, 'DELETE FROM audit_log'), /append-only/);
   await assert.rejects(sql(S.database, "UPDATE audit_log SET action = 'x'"), /append-only/);
   await assert.rejects(sql(S.database, 'TRUNCATE audit_log'), /append-only/);
+});
+
+test('the portal signs in to PostgreSQL with a restricted account, not a superuser', async () => {
+  const [me] = await sql(S.database, 'SELECT current_user AS name, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = current_user');
+  assert.deepEqual([me.rolsuper, me.rolcreatedb, me.rolcreaterole], [false, false, false], `${me.name} must not be a superuser (run scripts/db-app-account.js)`);
 });
 
 // ---------- headers, cookies, robustness ----------

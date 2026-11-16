@@ -5,6 +5,7 @@ const { PORT, HOST } = require('./src/config/environment');
 const { tlsOptions, useTls } = require('./src/config/tls');
 const { initDatabase, closeDatabase } = require('./src/config/database');
 const { createApp } = require('./src/app');
+const backups = require('./src/services/backup.service');
 
 const app = createApp();
 const server = useTls ? https.createServer(tlsOptions, app) : http.createServer(app);
@@ -16,6 +17,7 @@ initDatabase().then(
       console.log(`Small Shop Portal running at ${useTls ? 'https' : 'http'}://localhost:${PORT}`);
       if (!useTls) console.log('Note: not using HTTPS. Run scripts\\create-https-cert.ps1 to encrypt connections from other devices.');
       if (HOST) console.log(`Only accepting connections on ${HOST}`);
+      backups.startSchedule(); // a daily automatic backup while the portal runs
     }),
   (err) => {
     console.error(err.message);

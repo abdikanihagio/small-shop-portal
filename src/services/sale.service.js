@@ -2,9 +2,11 @@
 const SaleModel = require('../models/sale.model');
 const ProductModel = require('../models/product.model');
 const CustomerModel = require('../models/customer.model');
+const ShiftModel = require('../models/shift.model');
 const StockModel = require('../models/stock.model');
 const audit = require('./audit.service');
 const settings = require('./settings.service');
+const batches = require('./batch.service');
 const visibility = require('./visibility.service');
 const { transaction } = require('../config/database');
 const { can } = require('../config/permissions');
@@ -37,6 +39,10 @@ async function checkCreditLimit(customer, total) {
 function create(actor, { items, discountPercent, discountAmount, method, customerId }) {
   return transaction(async () => {
     const shop = await settings.get();
+    // Every sale belongs to someone's cash shift, so the till can be counted.
+    if (shop.require_shift !== '0' && !(await ShiftModel.findOpenForUser(actor.id))) {
+      throw bad('Open your shift first (Cash closing): count the cash in the drawer, then you can sell.');
+    }
     const taxRate = Number(shop.tax_rate) || 0;
     let customer = null;
     if (customerId) {
@@ -80,7 +86,7 @@ function create(actor, { items, discountPercent, discountAmount, method, custome
       userId: actor.id,
     });
     for (const l of lines) {
-      await SaleModel.addItem(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost_cents);
+      await SaleModel.addItem(saleId, l.p.id, l.p.name, l.qty, l.price, l.p.cost_cents, await batches.take(l.p.id, l.qty));
       await StockModel.addMovement({ productId: l.p.id, type: 'sale', qty: -l.qty, unitCost: l.p.cost_cents, saleId, userId: actor.id, note: `Sale #${saleId}` });
       await ProductModel.removeStock(l.p.id, l.qty);
     }
@@ -96,9 +102,12 @@ function voidSale(actor, id, reason) {
     if (!sale) throw notFound('Sale not found');
     if (sale.status === 'void') throw bad('Sale is already void');
     if (await SaleModel.hasReturns(id)) throw bad('This sale already has returns. Use Return items for the rest instead of voiding.');
-    await SaleModel.markVoid(id);
+    // The money goes back from the drawer of whoever voids it (their open shift, if any).
+    const shift = await ShiftModel.findOpenForUser(actor.id);
+    await SaleModel.markVoid(id, actor.id, shift?.id ?? null);
     for (const it of await SaleModel.items(id)) {
       await ProductModel.addStock(it.product_id, it.qty);
+      await batches.giveBack(batches.parseAllocations(it.batches), it.qty);
       await StockModel.addMovement({
         productId: it.product_id,
         type: 'void',

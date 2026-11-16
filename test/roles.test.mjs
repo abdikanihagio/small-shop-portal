@@ -14,6 +14,8 @@ before(async () => {
   S = (await startServer()).base;
   await call('POST', '/api/setup', { body: { username: 'owner', password: PW.owner, shop_name: 'Test' } });
   owner = await login('owner', PW.owner);
+  // These tests sell without opening cash shifts (shifts are tested in shifts-expiry.test.mjs).
+  await call('PUT', '/api/settings', { cookie: owner, body: { require_shift: '0' } });
   roles = (await call('GET', '/api/roles', { cookie: owner })).json;
   const id = (n) => roles.roles.find((r) => r.name === n).id;
   await call('POST', '/api/users', { cookie: owner, body: { username: 'cashier', password: PW.cashier, role: 'staff' } });

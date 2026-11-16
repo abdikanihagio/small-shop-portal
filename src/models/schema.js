@@ -242,6 +242,50 @@ const TABLES = `
     updated_at TEXT NOT NULL
   );
 
+  -- Cash closing: a cashier's shift at the till, from the opening float to the counted cash.
+  -- summary holds the closing figures (JSON) so the Z-report never changes afterwards.
+  CREATE TABLE IF NOT EXISTS cash_shifts (
+    ${ID},
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+    opened_at TEXT NOT NULL DEFAULT ${NOW},
+    opening_float_cents BIGINT NOT NULL DEFAULT 0,
+    -- The last record of each kind (sales, payments, …) when the shift opened / closed: the shift
+    -- covers exactly the records in between (no clock-precision edge cases).
+    start_ids TEXT NOT NULL DEFAULT '{}',
+    end_ids TEXT,
+    closed_at TEXT,
+    closed_by INTEGER REFERENCES users(id),
+    expected_cents BIGINT,
+    counted_cents BIGINT,
+    difference_cents BIGINT,
+    summary TEXT NOT NULL DEFAULT '{}',
+    note TEXT NOT NULL DEFAULT ''
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_shifts_one_open ON cash_shifts(user_id) WHERE status = 'open';
+  -- When a sale is voided: when, by whom, and in which open shift (the cash is paid back from that drawer).
+  ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_at TEXT;
+  ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_by INTEGER REFERENCES users(id);
+  ALTER TABLE sales ADD COLUMN IF NOT EXISTS voided_in_shift INTEGER REFERENCES cash_shifts(id);
+  CREATE INDEX IF NOT EXISTS idx_shifts_opened ON cash_shifts(opened_at);
+
+  -- Expiry dates: stock received with an expiry date is a batch. Sales take from the batch that
+  -- expires first; qty_left is what is still on the shelf from that batch.
+  CREATE TABLE IF NOT EXISTS stock_batches (
+    ${ID},
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    expiry_date TEXT NOT NULL,
+    qty_received INTEGER NOT NULL,
+    qty_left INTEGER NOT NULL CHECK (qty_left >= 0),
+    unit_cost_cents BIGINT NOT NULL DEFAULT 0,
+    purchase_id INTEGER REFERENCES purchases(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  );
+  CREATE INDEX IF NOT EXISTS idx_batches_product ON stock_batches(product_id, expiry_date);
+  -- Which batches each sold line came from ([{ "id": batch, "qty": n }]), so voids and returns put them back.
+  ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS batches TEXT NOT NULL DEFAULT '[]';
+
   CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_payments_ref ON customer_payments(ref);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_payments_ref ON supplier_payments(ref);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_ref ON returns(ref);

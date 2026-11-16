@@ -23,7 +23,9 @@ module.exports = Object.freeze({
   // Shop settings created on first run. max_staff_discount: highest discount (% of subtotal)
   // a user without the "discount.unlimited" permission may give.
   // primary_color / sidebar_color: the shop's own colours (Settings → Appearance); empty = built-in.
-  DEFAULT_SETTINGS: Object.freeze({ shop_name: 'My Shop', currency: 'USD', tax_rate: '0', max_staff_discount: '10', primary_color: '', sidebar_color: '' }),
+  // expiry_warning_days: stock expiring within this many days is flagged.
+  // require_shift: '1' = a sale needs the seller to have an open cash shift (Cash closing).
+  DEFAULT_SETTINGS: Object.freeze({ shop_name: 'My Shop', currency: 'USD', tax_rate: '0', max_staff_discount: '10', primary_color: '', sidebar_color: '', expiry_warning_days: '30', require_shift: '1' }),
 
   // Reference numbers (CUST001, SUPP001, RET001, …). Counters live in settings and only go up.
   PAYMENT_REFS: Object.freeze([

@@ -1,5 +1,6 @@
 // Sales, their items, and returns against them.
 const { db } = require('../config/database');
+const { NOW } = require('./schema');
 
 const SaleModel = {
   list: (from, to) =>
@@ -29,10 +30,15 @@ const SaleModel = {
       s.customer, s.customerId, s.method, s.subtotal, s.discount, s.discountPercent, s.tax, s.total, s.cogs, s.userId
     ),
 
-  addItem: (saleId, productId, name, qty, price, cost) =>
-    db.run('INSERT INTO sale_items (sale_id, product_id, name, qty, price_cents, cost_cents) VALUES (?, ?, ?, ?, ?, ?)', saleId, productId, name, qty, price, cost),
+  // batches: [{ id, qty }] the line was taken from (expiry tracking).
+  addItem: (saleId, productId, name, qty, price, cost, batches = []) =>
+    db.run(
+      'INSERT INTO sale_items (sale_id, product_id, name, qty, price_cents, cost_cents, batches) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      saleId, productId, name, qty, price, cost, JSON.stringify(batches)
+    ),
 
-  markVoid: (id) => db.run("UPDATE sales SET status = 'void' WHERE id = ?", id),
+  markVoid: (id, userId, shiftId) =>
+    db.run(`UPDATE sales SET status = 'void', voided_at = ${NOW}, voided_by = ?, voided_in_shift = ? WHERE id = ?`, userId, shiftId, id),
 
   // Returns
   hasReturns: async (saleId) => !!(await db.get('SELECT 1 FROM returns WHERE sale_id = ?', saleId)),

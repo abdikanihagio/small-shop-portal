@@ -22,6 +22,12 @@ function readSettings(body) {
     if (s && !/^#[0-9a-f]{6}$/.test(s)) throw bad(`${label} must be a colour like #0f766e`);
     return s;
   };
+  if (body.expiry_warning_days !== undefined) {
+    const n = Number(body.expiry_warning_days);
+    if (!Number.isInteger(n) || n < 1 || n > 365) throw bad('Expiry warning must be 1 to 365 days');
+    out.expiry_warning_days = String(n);
+  }
+  if (body.require_shift !== undefined) out.require_shift = [true, 1, '1', 'on', 'true'].includes(body.require_shift) ? '1' : '0';
   if (body.primary_color !== undefined) out.primary_color = colour(body.primary_color, 'Accent colour');
   if (body.sidebar_color !== undefined) out.sidebar_color = colour(body.sidebar_color, 'Menu colour');
   return out;

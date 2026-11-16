@@ -18,6 +18,8 @@ const ret = (saleId, items, refund_method, extra = {}) => call('POST', `/api/sal
 before(async () => {
   ({ base } = await startServer());
   admin = sid(await request(base, 'POST', '/api/setup', { body: { username: 'boss', password: 'Copper#Lantern2026', shop_name: 'Ret' } }));
+  // These tests sell without opening cash shifts (shifts are tested in shifts-expiry.test.mjs).
+  await call('PUT', '/api/settings', { body: { require_shift: '0' } });
   await ok('POST', '/api/users', { body: { username: 'till', password: 'blue tiger lamp river', role: 'staff' } });
   staff = sid(await request(base, 'POST', '/api/login', { body: { username: 'till', password: 'blue tiger lamp river' } }));
   await ok('PUT', '/api/settings', { body: { tax_rate: 10 } });

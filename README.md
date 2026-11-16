@@ -7,8 +7,9 @@ Runs on Node.js with a PostgreSQL database (started in Docker on this computer).
 
 Requires Node.js 22.13 or newer and Docker Desktop.
 
-1. **Database settings.** Put the PostgreSQL user and a long random password in `.env` (copy `.env.example`;
-   `PGPASSWORD` must be set). `.env` is private: it is never committed.
+1. **Database settings.** Copy `.env.example` to `.env` and fill in two long random passwords:
+   `PG_ADMIN_PASSWORD` (the administrator Docker creates) and `PGPASSWORD` (the portal's own account).
+   `.env` is private: it is never committed.
 2. **Start PostgreSQL** (once; it starts again with Docker Desktop):
 
    ```bash
@@ -16,7 +17,14 @@ Requires Node.js 22.13 or newer and Docker Desktop.
    ```
 
    It listens on `127.0.0.1` only (port `PGPORT`, 5434 by default here), so other computers cannot reach the database.
-3. **Install and start the portal:**
+3. **Create the portal's own database account** (once; again if you change `PGPASSWORD`). It owns the shop's
+   tables but has no superuser rights, so even a mistake in the portal can only touch shop data:
+
+   ```bash
+   node scripts/db-app-account.js
+   ```
+
+4. **Install and start the portal:**
 
    ```bash
    npm install
@@ -52,6 +60,8 @@ staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `T
 | **Dashboard** | Today's sales, month sales / gross profit / net profit, stock value, low-stock alerts, 30-day sales chart, top products, recent sales |
 | **Pos Sales** | Touch-friendly POS: search or scan SKU (Enter adds), cart with quantities, discount, automatic tax, payment method (cash/card/mobile/credit), printable receipt |
 | **Sales** | History by date range, sale details, void a whole sale, CSV export. **New sale**: an invoice-style form for entering a sale at a desk (customer, searchable product lines, quantity, price, discount, payment); it saves like a till sale |
+| **Cash closing** | Each cashier opens a shift with the float in the drawer and closes it by counting the cash (a blind count: the expected amount is shown only afterwards). The **Z-report** shows the float, cash sales, cash refunds, cash from customers, cash paid to suppliers, deliveries paid in cash and cash expenses, the expected and counted cash and the difference (short / over), plus sales by payment method; printable, and frozen once closed. Cashiers see their own shifts; Accounting sees everyone's. Pos Sales shows whether your shift is open. By default **an open shift is required to sell** (Pos Sales and New sale offer to open it on the spot; switch it off in Settings → Shop). In **All shifts**, Accounting also sees each open shift's sales and expected cash so far (open shifts are always listed). **Admins can close anyone's open shift** (for example a cashier who left without closing): they count that drawer, and the Z-report shows who closed it. |
+| **Expiry dates** | When receiving stock, each line can have an expiry date (a batch). Sales take from the batch that expires first, keeping expired stock back while good stock remains; voids and returns put it back on its batch. **Inventory → Expiry dates** lists batches with days left (expired in red, due within the warning period in amber) and **Write off** (counted as a stock loss). The dashboard shows how many batches are expired or due soon. The warning period is set in Settings (default 30 days). |
 | **Returns** | From a sale's details: **Return items** — choose how many of each item come back (several partial returns allowed). The refund is the exact share of what was paid, including discount and tax. Refund in cash/card/mobile, or off the customer's account (automatic for credit sales). Items go back into stock unless marked damaged (written off). Numbered return receipts (RET001…), shown in P&L, cash flow, statements, the Activity log and a Returns CSV. Owners/admins only. |
 | **Customers** | Register credit customers (name, phone, ID number, address, credit limit). Sell on credit at the till (credit limit is enforced), record payments, see what each customer owes, and a statement of every transaction with running balance — printable and exportable to CSV |
 | **Suppliers** | Register suppliers (contact, phone, tax/reg. no.). Receive stock from a supplier paid on the spot or on credit, record payments to them, see what you owe each one, and a statement of every delivery and payment with running balance — printable and exportable to CSV |
@@ -104,13 +114,35 @@ staff network, not customer Wi-Fi. (Alternatively set `TLS_CERT`/`TLS_KEY` or `T
 
 ## Data & backups
 
-All shop data lives in PostgreSQL (the `shop-pgdata` Docker volume). Back up with:
+All shop data lives in PostgreSQL (the `shop-pgdata` Docker volume).
+
+**Backups (Settings → Backups, admins).** While the portal runs it makes a backup **every day** by itself (the
+first one about a minute after it starts). Each backup is one compressed file holding every table, taken as a
+consistent snapshot while the shop keeps working. Files are kept in `data/backups` (set `BACKUP_DIR` to use
+another disk): the last 30 daily backups and the last 20 others.
+
+- **Back up now** (any admin), and **Download** any backup (owner only: backups hold every password hash). Copy one to a USB stick or cloud drive regularly: copies on this
+  computer don't help if the computer is lost or broken.
+- **Upload a backup file** (owner only) brings one back from a USB stick, for example onto a new computer.
+- **Restore** (owner only, confirmed by typing RESTORE) replaces all data in one transaction. A backup of the data
+  as it was is saved first, so a restore can itself be undone. Every backup, download, upload and restore is in the
+  Activity log.
+
+From the command line on the shop computer (for emergencies, or when the website can't be used):
 
 ```bash
-docker compose exec -T db pg_dump -U shop -d shop -Fc > shop-backup.dump
+npm run backup
 ```
 
-Restore into an empty database with `pg_restore`. The `data` folder (`DATA_DIR`) now only holds HTTPS certificate files.
+```bash
+node scripts/backup.js list
+```
+
+```bash
+node scripts/backup.js restore path/to/shop-backup-….json.gz
+```
+
+The `data` folder (`DATA_DIR`) holds the backups and the HTTPS certificate files.
 
 ## For developers: how the code is organised
 
@@ -133,7 +165,7 @@ src/
   middleware/             authentication, authorization, request guard, security headers, static files, errors
   utils/                  small shared helpers (HTTP, CSV, dates, hashing, cookies)
 lib/                      self-contained file formats: Excel, PDF, QR codes, authenticator codes
-scripts/                  HTTPS certificate helper, two-step login reset
+scripts/                  HTTPS certificate helper, two-step login reset, backups from the command line
 test/                     npm test (starts its own portals, each on a temporary PostgreSQL database)
 docker-compose.yml        the PostgreSQL container
 ```

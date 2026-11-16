@@ -9,6 +9,8 @@ const call = (method, p, opts = {}) => request(base, method, p, { cookie: owner,
 before(async () => {
   ({ base } = await startServer());
   owner = sid(await call('POST', '/api/setup', { body: { username: 'owner', password: 'Copper#Lantern2026', shop_name: 'Race' } }));
+  // These tests sell without opening cash shifts (shifts are tested in shifts-expiry.test.mjs).
+  await call('PUT', '/api/settings', { body: { require_shift: '0' } });
   await call('POST', '/api/products', { body: { sku: 'LAST', name: 'Last one', cost: 1, price: 2, stock: 1 } });
   await call('POST', '/api/customers', { body: { name: 'Cara', phone: '0700000001' } });
 });

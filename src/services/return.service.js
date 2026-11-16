@@ -5,6 +5,7 @@ const SettingsModel = require('../models/settings.model');
 const StockModel = require('../models/stock.model');
 const audit = require('./audit.service');
 const inventory = require('./inventory.service');
+const batches = require('./batch.service');
 const { transaction } = require('../config/database');
 const { bad, notFound } = require('../utils/http-error');
 
@@ -82,6 +83,7 @@ function createReturn(actor, saleId, request) {
     for (const l of r.lines) {
       await SaleModel.addReturnItem(returnId, l.si, l.qty, !l.damaged);
       if (l.damaged) continue; // written off, not restocked
+      await batches.giveBack(batches.parseAllocations(l.si.batches), l.qty, l.si.returned_qty);
       // Back on the shelf at the cost it was sold at (keeps the average cost honest).
       await inventory.addStockAtCost(await ProductModel.findById(l.si.product_id), l.qty, l.si.cost_cents);
       await StockModel.addMovement({

@@ -3,6 +3,7 @@ const ReportModel = require('../models/report.model');
 const ProductModel = require('../models/product.model');
 const CustomerModel = require('../models/customer.model');
 const SupplierModel = require('../models/supplier.model');
+const batches = require('./batch.service');
 const { can } = require('../config/permissions');
 const { today, monthStart } = require('../utils/dates');
 
@@ -70,7 +71,7 @@ async function profitAndLoss(from, to) {
 // Month figures need "accounting"; stock value needs "costs.view".
 async function dashboard(user) {
   const t = today();
-  const [todayStats, refunds, inv, daily, lowStock, recent, topProducts, month] = await Promise.all([
+  const [todayStats, refunds, inv, daily, lowStock, recent, topProducts, month, expiring] = await Promise.all([
     ReportModel.salesOnDay(t),
     ReportModel.refundsOnDay(t),
     ProductModel.stockSummary(),
@@ -79,6 +80,7 @@ async function dashboard(user) {
     ReportModel.recentSales(),
     ReportModel.topProductsSince(monthStart()),
     can(user, 'accounting') ? profitAndLoss(monthStart(), t) : null,
+    batches.expiringSummary(),
   ]);
   const out = {
     today: { ...todayStats, refunds },
@@ -87,6 +89,7 @@ async function dashboard(user) {
     recent,
     top_products: topProducts,
     product_count: inv.products,
+    expiring,
   };
   if (month) out.month = month;
   if (can(user, 'costs.view')) out.inventory_value = inv.value;

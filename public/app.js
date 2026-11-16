@@ -181,6 +181,8 @@ const ICONS = {
   bag: '<path d="M5 8h14l-1.3 11.2a2 2 0 0 1-2 1.8H8.3a2 2 0 0 1-2-1.8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
   chevrons: '<path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/>',
+  shifts: '<rect x="3" y="10" width="18" height="10" rx="2"/><path d="M7 10V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4M7 15h2M11 15h2M15 15h2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
@@ -662,6 +664,7 @@ const PAGES = {
   dashboard: { title: 'Dashboard', render: pageDashboard, group: '' },
   sell: { title: 'Pos Sales', render: pageSell, perms: ['sell'], group: 'Sales' },
   sales: { title: 'Sales', render: pageSales, perms: ['sales.view'], group: 'Sales' },
+  shifts: { title: 'Cash closing', render: pageShifts, perms: ['sell', 'accounting'], group: 'Sales' },
   customers: { title: 'Customers', render: pageCustomers, perms: ['customers.manage'], group: 'Sales' },
   products: { title: 'Products', render: pageProducts, perms: ['products.view', 'products.manage'], group: 'Stock' },
   inventory: { title: 'Inventory', render: pageInventory, perms: ['inventory.view', 'inventory.manage'], group: 'Stock' },
@@ -824,6 +827,8 @@ async function pageDashboard(page) {
       ${m ? kpi('Owed by customers', `<a href="#/customers" style="color:inherit;text-decoration:none">${money(m.receivables.total)}</a>`, `${m.receivables.customers} customer${m.receivables.customers === 1 ? '' : 's'} on credit`, 'customers', 'warn') : ''}
       ${m ? kpi('You owe suppliers', `<a href="#/suppliers" style="color:inherit;text-decoration:none">${money(m.payables.total)}</a>`, `to ${m.payables.suppliers} supplier${m.payables.suppliers === 1 ? '' : 's'}`, 'suppliers', 'warn') : ''}
       ${kpi('Low stock', `<span class="${d.low_stock.length ? 'neg-num' : ''}">${d.low_stock.length}</span>`, 'at or below reorder level', 'alert', d.low_stock.length ? 'danger' : '')}
+      ${d.expiring ? kpi('Expiring soon', `<a href="#/inventory/expiry" style="color:inherit;text-decoration:none" class="${d.expiring.expired ? 'neg-num' : ''}">${d.expiring.batches}</a>`,
+        d.expiring.expired ? `${d.expiring.expired} batch${d.expiring.expired === 1 ? '' : 'es'} already expired` : `expired or due within ${d.expiring.warning_days} days`, 'clock', d.expiring.expired ? 'danger' : d.expiring.batches ? 'warn' : '') : ''}
     </div>
     <div class="grid two-col" style="margin-bottom:16px">
       <div class="card"><div class="card-head"><h2>Sales, last 30 days</h2></div><div class="card-pad">${barChart(d.daily)}</div></div>
@@ -950,7 +955,7 @@ const lineCents = (l, field) => Math.round((l.qty || 0) * (l[field] || 0) * 100)
 //   when qty is more than in stock; enterToPrice: Enter in Qty moves to the price box (else back to
 //   the search box, so a barcode scanner never submits the form); onChange: after any change.
 // Returns { draw, add(p, qty) }.
-function lineEditor({ body, search, lines, field, editable = true, warnShort = false, enterToPrice = false, emptyText, onChange }) {
+function lineEditor({ body, search, lines, field, editable = true, warnShort = false, enterToPrice = false, expiry = false, emptyText, onChange }) {
   const short = (l) => warnShort && l.qty > l.p.stock;
   const draw = () => {
     body.innerHTML = lines.length
@@ -961,14 +966,15 @@ function lineEditor({ body, search, lines, field, editable = true, warnShort = f
           <td class="num">${editable
             ? `<input data-f="${field}" type="number" min="0" step="0.01" value="${l[field] ?? ''}" style="text-align:right">`
             : money(lineCents({ qty: 1, [field]: l[field] }, field))}</td>
+          ${expiry ? `<td><input data-f="expiry" type="date" value="${l.expiry || ''}" min="${localDate()}" aria-label="Expiry date" title="Leave empty if it doesn't expire"></td>` : ''}
           <td class="num" data-total>${money(lineCents(l, field))}</td>
           <td class="num"><button type="button" class="icon-btn" data-rm aria-label="Remove line" title="Remove">${icon('x', 16)}</button></td></tr>`).join('')
-      : `<tr><td colspan="6" class="empty">${emptyText}</td></tr>`;
+      : `<tr><td colspan="${expiry ? 7 : 6}" class="empty">${emptyText}</td></tr>`;
     $$('tr[data-i]', body).forEach((row) => {
       const l = lines[Number(row.dataset.i)];
       $$('input', row).forEach((inp) => {
         inp.oninput = () => {
-          l[inp.dataset.f] = inp.value === '' ? null : Number(inp.value);
+          l[inp.dataset.f] = inp.value === '' ? null : inp.type === 'date' ? inp.value : Number(inp.value);
           $('[data-total]', row).textContent = money(lineCents(l, field));
           $('[data-stock]', row).classList.toggle('neg-num', short(l));
           onChange();
@@ -1005,12 +1011,13 @@ function lineEditor({ body, search, lines, field, editable = true, warnShort = f
 }
 
 async function pageSell(page) {
-  const [products, customers] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers')]);
+  const [products, customers, shift] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers'), api('GET', '/api/shifts/current').catch(() => ({}))]);
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   let cartTotal = 0;
 
   page.innerHTML = `
-    <div class="page-head" data-no-export><h1>Pos Sales</h1></div>
+    <div class="page-head" data-no-export><h1>Pos Sales</h1><span id="pos-shift"></span></div>
+    ${shiftRequired() && !shift.shift ? openShiftBoxHtml() : ''}
     <div class="pos">
       <div class="card">
         <div class="card-head" style="gap:8px">
@@ -1097,7 +1104,7 @@ async function pageSell(page) {
     $('#cart-jump').classList.toggle('hidden', !count);
     $('#cart-jump').innerHTML = `<span>View cart · ${count} item${count === 1 ? '' : 's'}</span><span>${money(cartTotal)}</span>`;
     const creditBlocked = drawCustomer();
-    $('#checkout').disabled = !state.cart.length || totals.overLimit || creditBlocked;
+    $('#checkout').disabled = !state.cart.length || totals.overLimit || creditBlocked || (shiftRequired() && !shift.shift);
   };
 
   const custSel = $('#cart [name=customer_id]');
@@ -1152,6 +1159,10 @@ async function pageSell(page) {
   };
   drawGrid();
   drawCart();
+  bindOpenShiftBox(page, () => pageSell(page));
+  $('#pos-shift').innerHTML = shift.shift
+    ? `<a class="badge ok" style="text-transform:none" href="#/shifts" title="Close it from Cash closing">Shift open since ${fmtDateTime(shift.shift.opened_at)}</a>`
+    : '<a class="btn sm" href="#/shifts">No shift open · Open shift</a>';
   search.focus();
 }
 
@@ -1376,15 +1387,189 @@ async function pageSales(page, from = datePresets().month[0], to = localDate()) 
   $$('[data-sale]', page).forEach((r) => (r.onclick = () => showSale(r.dataset.sale)));
 }
 
+// ---------- cash closing (shifts / Z-report) ----------
+
+const shiftRequired = () => state.settings.require_shift !== '0';
+
+// Shown where people sell when the shop requires a shift and theirs isn't open: open it right here.
+function openShiftBoxHtml() {
+  return `<div class="card open-shift-box">
+      <div class="card-pad">
+        <div class="osb-text"><strong>Open your shift to start selling.</strong>
+          <span class="muted">Count the cash in the drawer and enter it. Your sales are added up until you close the shift in Cash closing.</span></div>
+        <form class="toolbar osb-form" novalidate>
+          <div class="field" style="margin:0;width:180px"><label>Cash in the drawer (float)</label><input name="float" type="number" min="0" step="0.01" value="0" required></div>
+          <button class="btn primary" type="submit">Open shift</button>
+        </form>
+      </div>
+    </div>`;
+}
+function bindOpenShiftBox(root, onOpened) {
+  const form = $('.osb-form', root);
+  if (!form) return;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('POST', '/api/shifts/open', { float: formData(form).float });
+      toast('Shift opened. You can sell now.');
+      onOpened();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+}
+
+const CASH_LINES = [
+  ['opening_float', 'Opening float', 1],
+  ['cash_sales', 'Cash sales', 1],
+  ['cash_voids', 'Voided cash sales (paid back)', -1],
+  ['cash_refunds', 'Cash refunds (returns)', -1],
+  ['customer_payments_cash', 'Cash from credit customers', 1],
+  ['supplier_payments_cash', 'Cash paid to suppliers', -1],
+  ['deliveries_paid_cash', 'Deliveries paid in cash', -1],
+  ['expenses_cash', 'Cash expenses', -1],
+];
+const differenceLabel = (d) => (d === 0 ? 'Exact' : d < 0 ? `Short ${money(-d)}` : `Over ${money(d)}`);
+const differenceBadge = (d) => (d == null ? '<span class="muted">—</span>' : `<span class="badge ${d === 0 ? 'ok' : d < 0 ? 'danger' : 'warn'}">${differenceLabel(d)}</span>`);
+
+// Receipt-style Z-report (also printed). Open shifts (seen by Accounting) show the figures so far.
+function zReportHtml(sh) {
+  const m = { ...sh.summary, opening_float: sh.opening_float_cents };
+  const closed = sh.status === 'closed';
+  const line = ([key, label, sign]) => (m[key] || key === 'opening_float' || key === 'cash_sales' ? `<div class="r"><span>${sign < 0 ? '− ' : key === 'opening_float' ? '' : '+ '}${label}</span><span>${toMajor(m[key] || 0)}</span></div>` : '');
+  return `<div class="receipt">
+    ${printLogo()}
+    <div class="c"><strong>${esc(state.settings.shop_name)}</strong></div>
+    <div class="c">${closed ? 'Z-REPORT' : 'SHIFT SO FAR'} · SHIFT #${sh.id}</div>
+    <div class="c">${esc(sh.user_name || sh.username)}</div>
+    <hr>
+    <div class="r"><span>Opened</span><span>${esc(sh.opened_at)}</span></div>
+    <div class="r"><span>Closed</span><span>${closed ? esc(sh.closed_at) : 'still open'}</span></div>
+    ${closed && sh.closed_by_username && sh.closed_by_username !== sh.username ? `<div class="r"><span>Closed by</span><span>${esc(sh.closed_by_username)}</span></div>` : ''}
+    <hr>
+    ${m.expected_cash !== undefined ? `${CASH_LINES.map(line).join('')}
+      <div class="r"><strong>Expected cash</strong><strong>${toMajor(m.expected_cash)}</strong></div>` : ''}
+    ${closed ? `<div class="r"><strong>Counted cash</strong><strong>${toMajor(sh.counted_cents)}</strong></div>
+      <div class="r"><strong>Difference</strong><strong>${sh.difference_cents === 0 ? '0.00' : (sh.difference_cents > 0 ? '+' : '−') + toMajor(Math.abs(sh.difference_cents))}</strong></div>
+      <div class="c" style="margin-top:4px">${differenceLabel(sh.difference_cents).toUpperCase()}</div>` : ''}
+    <hr>
+    <div class="c">SALES</div>
+    ${(m.sales_by_method || []).map((x) => `<div class="r"><span>${esc(METHOD_LABEL[x.method] || x.method)} (${x.count})</span><span>${toMajor(x.amount)}</span></div>`).join('') || '<div class="c">No sales</div>'}
+    <div class="r"><strong>Total (${m.sales_count || 0} sales)</strong><strong>${toMajor(m.sales_total || 0)}</strong></div>
+    ${sh.note ? `<hr><div>Note: ${esc(sh.note)}</div>` : ''}
+    ${closed ? '<hr><div class="c">Signature: ______________</div>' : ''}
+  </div>`;
+}
+
+async function showShift(id) {
+  const sh = await api('GET', `/api/shifts/${id}`);
+  modal({
+    title: sh.status === 'closed' ? `Z-report · shift #${sh.id}` : `Shift #${sh.id} (open)`,
+    body: zReportHtml(sh),
+    footer: '<button type="button" class="btn" data-print>Print</button><button type="button" class="btn primary" data-close>Done</button>',
+  });
+  $('#modal-root [data-print]').onclick = () => printHtml(zReportHtml(sh));
+}
+
+async function pageShifts(page, from = datePresets().week[0], to = localDate()) {
+  const [cur, shifts] = await Promise.all([can('sell') ? api('GET', '/api/shifts/current') : { shift: null }, api('GET', `/api/shifts?from=${from}&to=${to}`)]);
+  const sh = cur.shift;
+  const all = can('accounting');
+  const reload = () => pageShifts(page, from, to);
+  page.innerHTML = `
+    <div class="page-head"><h1>Cash closing</h1><div class="toolbar">${dateRangeControls(from, to)}</div></div>
+    ${can('sell') ? `<div class="card" style="margin-bottom:18px">
+      <div class="card-head"><h2>Your shift</h2>${sh ? '<span class="badge ok">Open</span>' : '<span class="badge">Closed</span>'}</div>
+      <div class="card-pad">${sh ? `
+        <div class="grid kpis" style="margin-bottom:14px">
+          <div class="card kpi"><div class="label">Open since</div><div class="value" style="font-size:18px">${fmtDateTime(sh.opened_at)}</div><div class="sub">float ${money(sh.opening_float_cents)}</div></div>
+          <div class="card kpi"><div class="label">Sales this shift</div><div class="value">${money(sh.summary.sales_total)}</div><div class="sub">${sh.summary.sales_count} sale${sh.summary.sales_count === 1 ? '' : 's'}</div></div>
+          ${(sh.summary.sales_by_method || []).map((x) => `<div class="card kpi"><div class="label">${esc(METHOD_LABEL[x.method] || x.method)}</div><div class="value">${money(x.amount)}</div><div class="sub">${x.count} sale${x.count === 1 ? '' : 's'}</div></div>`).join('')}
+        </div>
+        <div class="toolbar"><button class="btn primary" id="sh-close">Close shift &amp; count cash</button>
+          <span class="muted" style="font-size:12.5px">At the end of the shift, count all the cash in the drawer (including the float).</span></div>` : `
+        <form id="sh-open" class="toolbar" style="align-items:end" novalidate>
+          <div class="field" style="margin:0;max-width:220px"><label>Cash in the drawer now (float)</label><input name="float" type="number" min="0" step="0.01" value="0" required></div>
+          <button class="btn primary" type="submit">Open shift</button>
+        </form>
+        <p class="muted" style="font-size:12.5px;margin:10px 0 0">Open a shift when you start at the till. Your cash sales, refunds and cash payments are added up until you close it.</p>`}
+      </div>
+    </div>` : ''}
+    <div class="card table-wrap">
+      <div class="card-head"><h2>${all ? 'All shifts' : 'Your shifts'}</h2></div>
+      ${shifts.length ? `<table><thead><tr>${all ? '<th>Cashier</th>' : ''}<th>Opened</th><th>Closed</th><th class="num">Float</th><th class="num">Sales</th><th class="num">Expected</th><th class="num">Counted</th><th>Difference</th></tr></thead><tbody>
+        ${shifts.map((x) => `<tr class="clickable" data-shift="${x.id}">${all ? `<td><strong>${esc(x.user_name || x.username)}</strong></td>` : ''}
+          <td>${fmtDateTime(x.opened_at)}</td><td>${x.closed_at ? fmtDateTime(x.closed_at) : '<span class="badge ok">open</span>'}</td>
+          <td class="num">${money(x.opening_float_cents)}</td>
+          <td class="num">${money(x.sales_total)}<div class="muted" style="font-size:12px">${x.sales_count} sale${x.sales_count === 1 ? '' : 's'}</div></td>
+          <td class="num">${x.expected_cents != null ? money(x.expected_cents) : x.expected_so_far != null ? `${money(x.expected_so_far)}<div class="muted" style="font-size:12px">so far</div>` : '<span class="muted">—</span>'}</td>
+          <td class="num">${x.counted_cents == null ? '<span class="muted">—</span>' : money(x.counted_cents)}</td>
+          <td class="keep">${x.status === 'closed' ? differenceBadge(x.difference_cents) : isAdmin() ? `<button class="btn sm" data-close-shift="${x.id}">Close</button>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No shifts in this period</div>'}
+    </div>`;
+
+  bindDateRange(page, (f, t) => pageShifts(page, f, t));
+  $$('[data-shift]', page).forEach((r) => (r.onclick = () => showShift(r.dataset.shift)));
+  $$('[data-close-shift]', page).forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const x = shifts.find((s) => s.id === Number(b.dataset.closeShift));
+    const mine = x.user_id === state.user.id;
+    modal({
+      title: mine ? 'Close your shift' : `Close ${x.user_name || x.username}'s shift`,
+      submitLabel: 'Close shift',
+      body: `<p style="margin-top:0">Count <strong>all</strong> the cash in ${mine ? 'your' : 'their'} drawer, including the float of ${money(x.opening_float_cents)}, and enter the total.
+          ${mine ? '' : 'The Z-report will show that you closed it.'}</p>
+        <div class="field"><label>Counted cash</label><input name="counted" type="number" min="0" step="0.01" required></div>
+        <div class="field"><label>Note (optional)</label><input name="note" maxlength="200" placeholder="${mine ? 'e.g. 5.00 taken for change' : 'e.g. cashier left without closing'}"></div>`,
+      onSubmit: async (data) => {
+        if (data.counted === '') throw new Error('Enter the cash you counted');
+        const z = await api('POST', `/api/shifts/${x.id}/close`, { counted: data.counted, note: data.note });
+        toast(`Shift closed: ${differenceLabel(z.difference_cents).toLowerCase()}`, z.difference_cents < 0 ? 'error' : '');
+        setTimeout(() => showShift(z.id), 0);
+        reload();
+      },
+    });
+  }));
+  const openForm = $('#sh-open');
+  if (openForm) openForm.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('POST', '/api/shifts/open', { float: formData(openForm).float });
+      toast('Shift opened');
+      reload();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+  if ($('#sh-close')) $('#sh-close').onclick = () =>
+    modal({
+      title: 'Close your shift',
+      submitLabel: 'Close shift',
+      body: `<p style="margin-top:0">Count <strong>all</strong> the cash in the drawer, including the float, and enter the total.
+          The expected amount is shown after you close, so count carefully.</p>
+        <div class="field"><label>Counted cash</label><input name="counted" type="number" min="0" step="0.01" required></div>
+        <div class="field"><label>Note (optional)</label><input name="note" maxlength="200" placeholder="e.g. 5.00 taken for change"></div>`,
+      onSubmit: async (data) => {
+        if (data.counted === '') throw new Error('Enter the cash you counted');
+        const z = await api('POST', '/api/shifts/close', { counted: data.counted, note: data.note });
+        toast(`Shift closed: ${differenceLabel(z.difference_cents).toLowerCase()}`, z.difference_cents < 0 ? 'error' : '');
+        setTimeout(() => showShift(z.id), 0);
+        reload();
+      },
+    });
+}
+
 // Invoice-style sale entry (Sales → New sale): customer, product lines, discount, Save.
 // Saves through the same API as Pos Sales, so stock, reports and receipts work the same way.
 async function pageNewSale(page) {
-  const [products, customers] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers')]);
+  const [products, customers, shift] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/customers'), api('GET', '/api/shifts/current').catch(() => ({}))]);
+  const blocked = shiftRequired() && !shift.shift;
   // The server only accepts a changed price from users who may give unlimited discounts.
   const canPrice = can('discount.unlimited');
   const lines = []; // { p, qty, price } — price in major units
   page.innerHTML = `
     <div class="page-head" data-no-export><h1>New sale</h1><a class="btn" href="#/sales">Back to sales</a></div>
+    ${blocked ? openShiftBoxHtml() : ''}
     <form class="card" id="ns-form" novalidate>
       <div class="card-pad">
         <div class="row">
@@ -1425,7 +1610,7 @@ async function pageNewSale(page) {
     $('#ns-totals').innerHTML = totals.html;
     const short = lines.find((l) => l.qty > l.p.stock);
     const creditBlocked = drawCustomerCredit($('#ns-cust-info'), customers.find((c) => c.id === Number(custSel.value)), methodSel.value === 'credit', total);
-    $('#ns-save').disabled = !lines.length || totals.overLimit || !!short || creditBlocked;
+    $('#ns-save').disabled = !lines.length || totals.overLimit || !!short || creditBlocked || blocked;
   };
   const discount = bindDiscountField(form, drawTotals);
   custSel.onchange = methodSel.onchange = drawTotals;
@@ -1438,6 +1623,7 @@ async function pageNewSale(page) {
     if (p.stock <= 0 && !lines.some((l) => l.p.id === p.id)) return toast(`${p.name} is out of stock`, 'error');
     editor.add(p, 1);
   };
+  bindOpenShiftBox(page, () => pageNewSale(page));
   bindProductPicker(search, $('#ns-results'), products, addLine, (p) => (lines.some((l) => l.p.id === p.id) ? 'added' : p.stock <= 0 ? 'out of stock' : ''));
 
   form.onsubmit = async (e) => {
@@ -2101,7 +2287,7 @@ async function openReceiveStock({ products, productId, supplierId, onDone }) {
         <div class="picker-list hidden" id="rs-results"></div>
       </div>
       <div class="table-wrap" style="border:1px solid var(--border);border-radius:8px">
-        <table class="rs-lines"><thead><tr><th>Product</th><th class="num">In stock</th><th class="num" style="width:96px">Qty</th><th class="num" style="width:110px">Unit cost</th><th class="num">Line total</th><th></th></tr></thead>
+        <table class="rs-lines"><thead><tr><th>Product</th><th class="num">In stock</th><th class="num" style="width:96px">Qty</th><th class="num" style="width:110px">Unit cost</th><th style="width:150px">Expiry date</th><th class="num">Line total</th><th></th></tr></thead>
         <tbody id="rs-lines"></tbody></table>
       </div>
       <div class="totals" style="padding:10px 0 0"><div class="grand"><span>Purchase total</span><span class="num" id="rs-total">${money(0)}</span></div></div>`,
@@ -2115,7 +2301,7 @@ async function openReceiveStock({ products, productId, supplierId, onDone }) {
         supplier: data.supplier,
         payment_method: data.payment_method,
         note: data.note,
-        items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty, unit_cost: l.cost })),
+        items: lines.map((l) => ({ product_id: l.p.id, qty: l.qty, unit_cost: l.cost, ...(l.expiry ? { expiry: l.expiry } : {}) })),
       });
       toast(`Received ${res.products.length} product${res.products.length === 1 ? '' : 's'} · ${money(res.total_cents)}${data.payment_method === 'credit' ? ' on credit' : ''}`);
       onDone?.();
@@ -2142,7 +2328,7 @@ async function openReceiveStock({ products, productId, supplierId, onDone }) {
   drawSupplier();
 
   const editor = lineEditor({
-    body, search, lines, field: 'cost', enterToPrice: true,
+    body, search, lines, field: 'cost', enterToPrice: true, expiry: true,
     emptyText: 'Search above to add the products in this delivery',
     onChange: () => ($('#rs-total', form).textContent = money(lines.reduce((a, l) => a + lineCents(l, 'cost'), 0))),
   });
@@ -2176,8 +2362,9 @@ async function showPurchase(id) {
 const MOVE_LABEL = { opening: 'Opening', purchase: 'Received', adjustment: 'Adjustment', sale: 'Sale', void: 'Sale voided', return: 'Returned' };
 const MOVE_BADGE = { opening: 'info', purchase: 'ok', adjustment: 'warn', sale: '', void: 'danger', return: 'info' };
 
-async function pageInventory(page, tab = 'stock') {
-  const [products, moves] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/inventory/movements?limit=300')]);
+async function pageInventory(page, tab = state.routeArg === 'expiry' ? 'expiry' : 'stock') {
+  const [products, moves, batches] = await Promise.all([api('GET', '/api/products'), api('GET', '/api/inventory/movements?limit=300'), api('GET', '/api/inventory/batches')]);
+  const expiring = batches.batches.filter((b) => b.state !== 'ok');
   const value = products.reduce((a, p) => a + Math.max(p.stock, 0) * p.cost_cents, 0);
   const retail = products.reduce((a, p) => a + Math.max(p.stock, 0) * p.price_cents, 0);
   const low = products.filter((p) => p.stock <= p.reorder_level);
@@ -2191,8 +2378,9 @@ async function pageInventory(page, tab = 'stock') {
       ${can('costs.view') ? `<div class="card kpi"><div class="label">Stock value (cost)</div><div class="value">${money(value)}</div></div>
       <div class="card kpi"><div class="label">Stock value (retail)</div><div class="value">${money(retail)}</div><div class="sub">${money(retail - value)} potential profit</div></div>` : ''}
       <div class="card kpi"><div class="label">Low / out of stock</div><div class="value ${low.length ? 'neg-num' : ''}">${low.length}</div></div>
+      <div class="card kpi"><div class="label">Expired / expiring soon</div><div class="value ${expiring.some((b) => b.state === 'expired') ? 'neg-num' : ''}">${expiring.length}</div><div class="sub">batches within ${batches.warning_days} days</div></div>
     </div>
-    <div class="tabs"><button data-tab="stock">Stock levels</button><button data-tab="moves">Stock movements</button></div>
+    <div class="tabs"><button data-tab="stock">Stock levels</button><button data-tab="moves">Stock movements</button><button data-tab="expiry">Expiry dates${expiring.length ? ` (${expiring.length})` : ''}</button></div>
     <div class="card table-wrap" id="i-body"></div>`;
 
   $$('.tabs button', page).forEach((b) => {
@@ -2210,6 +2398,34 @@ async function pageInventory(page, tab = 'stock') {
         ${can('costs.view') ? `<td class="num">${money(p.cost_cents)}</td><td class="num">${money(Math.max(p.stock, 0) * p.cost_cents)}</td>` : ''}
         ${can('inventory.manage') ? `<td class="num"><button class="btn sm" data-restock="${p.id}">Receive</button> <button class="btn sm" data-adjust="${p.id}">Adjust</button></td>` : ''}</tr>`).join('')}
     </tbody></table>` : '<div class="empty">No products yet</div>';
+  } else if (tab === 'expiry') {
+    const label = (b) => (b.days_left < 0 ? `Expired ${-b.days_left} day${b.days_left === -1 ? '' : 's'} ago` : b.days_left === 0 ? 'Expires today' : `${b.days_left} day${b.days_left === 1 ? '' : 's'} left`);
+    body.innerHTML = batches.batches.length
+      ? `<table><thead><tr><th>Product</th><th>Expiry date</th><th>Status</th><th class="num">Left</th><th class="num">Received</th><th>Delivery</th>${can('inventory.manage') ? '<th></th>' : ''}</tr></thead><tbody>
+        ${batches.batches.map((b) => `<tr><td><strong>${esc(b.product_name)}</strong><div class="muted" style="font-size:12px">${esc(b.sku)}</div></td>
+          <td>${fmtDate(b.expiry_date)}</td>
+          <td><span class="badge ${b.state === 'expired' ? 'danger' : b.state === 'soon' ? 'warn' : 'ok'}" style="text-transform:none">${label(b)}</span></td>
+          <td class="num">${b.qty_left} ${esc(b.unit)}</td><td class="num muted">${b.qty_received}</td>
+          <td class="muted">${b.purchase_id ? `#${b.purchase_id}${b.supplier ? ` · ${esc(b.supplier)}` : ''}${b.invoice ? ` · ${esc(b.invoice)}` : ''}` : '—'}</td>
+          ${can('inventory.manage') ? `<td class="num"><button class="btn sm ${b.state === 'expired' ? 'danger' : ''}" data-writeoff="${b.id}">Write off</button></td>` : ''}</tr>`).join('')}
+        </tbody></table>
+        <div class="card-pad muted" style="font-size:12.5px;border-top:1px solid var(--border)">Sales take stock from the batch that expires first. Stock received without an expiry date isn't listed here.
+          Warning starts ${batches.warning_days} days before the date${can('settings.manage') ? ' (change it in Settings)' : ''}.</div>`
+      : `<div class="empty">No stock with expiry dates yet. When you receive stock, enter the expiry date on each line that has one.</div>`;
+    $$('[data-writeoff]', body).forEach((btn) => (btn.onclick = async () => {
+      const b = batches.batches.find((x) => x.id === Number(btn.dataset.writeoff));
+      const r = await confirmBox(`Write off ${b.qty_left} ${b.unit} of ${b.product_name}?`,
+        `The batch expiring ${fmtDate(b.expiry_date)} is removed from stock and counted as a loss. Do this when the items are thrown away.`, 'Write off',
+        '<div class="field"><label>Reason</label><select name="reason"><option>Expired</option><option>Spoiled / damaged</option><option>Returned to supplier</option></select></div>');
+      if (!r) return;
+      try {
+        const res = await api('POST', `/api/inventory/batches/${b.id}/write-off`, { reason: r.reason });
+        toast(`${res.qty} ${b.unit} of ${res.product} written off`);
+        pageInventory(page, 'expiry');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }));
   } else {
     body.innerHTML = moves.length ? `<table><thead><tr><th>Date</th><th>Product</th><th>Type</th><th class="num">Change</th>${can('costs.view') ? '<th class="num">Unit cost</th>' : ''}<th>Details</th><th>By</th></tr></thead><tbody>
       ${moves.map((m) => `<tr ${m.purchase_id && can('suppliers.manage', 'inventory.manage') ? `class="clickable" data-purchase="${m.purchase_id}"` : m.sale_id ? `class="clickable" data-sale="${m.sale_id}"` : ''}><td>${fmtDateTime(m.created_at)}</td><td>${esc(m.product_name)}</td>
@@ -2415,6 +2631,9 @@ const AUDIT_LABEL = {
   'products.imported': 'Imported products',
   'stock.received': 'Received stock',
   'stock.adjusted': 'Adjusted stock count',
+  'stock.written_off': 'Wrote off expired stock',
+  'shift.opened': 'Opened a shift',
+  'shift.closed': 'Closed a shift (cash count)',
   'sale.discount': 'Sale with discount',
   'sale.voided': 'Voided sale',
   'sale.returned': 'Items returned',
@@ -2436,6 +2655,10 @@ const AUDIT_LABEL = {
   '2fa.reset_on_computer': 'Two-step login reset on shop PC',
   'branding.updated': 'Changed logo / icon',
   'branding.removed': 'Removed logo / icon',
+  'backup.created': 'Backup made',
+  'backup.downloaded': 'Downloaded a backup',
+  'backup.uploaded': 'Uploaded a backup file',
+  'backup.restored': 'Restored a backup',
 };
 const AUDIT_FILTERS = [
   ['', 'All activity'],
@@ -2447,12 +2670,14 @@ const AUDIT_FILTERS = [
   ['expense', 'Expenses'],
   ['product', 'Products & prices'],
   ['stock', 'Stock'],
+  ['shift', 'Cash closing'],
   ['user', 'Users & passwords'],
   ['role', 'Roles & permissions'],
   ['settings', 'Settings'],
   ['branding', 'Logo & icon'],
+  ['backup', 'Backups'],
 ];
-const AUDIT_ALERT = /failed|reversed|voided|returned|password|user\.|role\.|settings|branding|2fa/;
+const AUDIT_ALERT = /failed|reversed|voided|returned|password|user\.|role\.|settings|branding|restored|2fa/;
 
 function auditDetails(json) {
   let d;
@@ -2714,6 +2939,95 @@ function bindAppearance() {
   draw();
 }
 
+// ---------- Settings → Backups (admins; restoring is the owner's) ----------
+
+const fileSize = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+const BACKUP_KIND = { auto: ['info', 'Automatic'], manual: ['', 'Manual'], 'before-restore': ['warn', 'Before restore'], uploaded: ['', 'Uploaded'] };
+
+async function drawBackups(showAll = false) {
+  const box = $('#s-backups .card-pad');
+  if (!box) return;
+  let s;
+  try {
+    s = await api('GET', '/api/backups');
+  } catch (err) {
+    box.innerHTML = `<div class="error-msg">${esc(err.message)}</div>`;
+    return;
+  }
+  const last = s.last_auto;
+  const rows = showAll ? s.backups : s.backups.slice(0, 6);
+  box.innerHTML = `
+    <div class="backup-status ${s.auto_error ? 'bad' : last ? 'ok' : 'warn'}">
+      ${s.auto_error
+        ? `<strong>The last automatic backup failed.</strong> ${esc(s.auto_error.message)}`
+        : last
+        ? `<strong>Automatic backup every day.</strong> Last one: ${fmtDateTime(last.created_at)} (${fileSize(last.size)}).`
+        : '<strong>No automatic backup yet.</strong> One is made within a minute of the portal starting, then every day.'}
+    </div>
+    <div class="toolbar" style="margin:12px 0">
+      <button type="button" class="btn primary sm" id="bk-now">Back up now</button>
+      ${state.user.is_owner ? '<label class="btn sm">Upload a backup file<input type="file" id="bk-upload" accept=".gz,application/gzip" hidden></label>' : ''}
+    </div>
+    ${s.backups.length ? `<div class="table-wrap" style="border:1px solid var(--border);border-radius:8px"><table class="backup-list"><thead><tr><th>Made</th><th>Type</th><th class="num">Size</th><th></th></tr></thead><tbody>
+      ${rows.map((b) => `<tr><td>${fmtDateTime(b.created_at)}</td><td><span class="badge ${BACKUP_KIND[b.kind][0]}">${BACKUP_KIND[b.kind][1]}</span></td><td class="num">${fileSize(b.size)}</td>
+        <td class="num keep">${state.user.is_owner ? `<a class="btn sm" href="/api/backups/${encodeURIComponent(b.name)}/download" title="Save a copy (e.g. to a USB stick)">Download</a>` : ''}
+        ${state.user.is_owner ? `<button type="button" class="btn sm danger" data-restore="${esc(b.name)}">Restore</button>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    ${s.backups.length > rows.length ? `<button type="button" class="btn sm" id="bk-all" style="margin-top:8px">Show all ${s.backups.length}</button>` : ''}` : ''}
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Kept: the last ${s.keep.auto} daily backups and ${s.keep.other} others, in <code>${esc(s.folder)}</code>.
+      <strong>Also download one regularly to a USB stick or cloud drive</strong>: copies on this computer don't help if the computer is lost or broken.
+      ${state.user.is_owner ? '' : 'Only the owner can download, upload or restore backups (they contain every password hash).'}</p>`;
+
+  $('#bk-now').onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const b = await api('POST', '/api/backups');
+      toast(`Backup saved (${fileSize(b.size)})`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    drawBackups(showAll);
+  };
+  if ($('#bk-upload')) $('#bk-upload').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const res = await portalFetch('/api/backups/upload', { method: 'POST', headers: { ...PORTAL_HEADER, 'Content-Type': 'application/octet-stream' }, body: file });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      toast('Backup file added. Use Restore on it to put it back.');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    drawBackups(showAll);
+  };
+  if ($('#bk-all')) $('#bk-all').onclick = () => drawBackups(true);
+  $$('[data-restore]', box).forEach((b) => (b.onclick = () => restoreBackup(s.backups.find((x) => x.name === b.dataset.restore))));
+}
+
+function restoreBackup(b) {
+  modal({
+    title: 'Restore this backup?',
+    submitLabel: 'Restore',
+    body: `<p style="margin-top:0">All shop data will be replaced with the backup from <strong>${fmtDateTime(b.created_at)}</strong>:
+        sales, stock, customers, payments, users, settings and the activity log. Anything entered after that time is removed.</p>
+      <p>A backup of the data as it is now is saved first, so this can be undone by restoring that one.
+        Everyone may need to sign in again.</p>
+      <div class="field"><label>Type RESTORE to confirm</label><input name="confirm" autocomplete="off" placeholder="RESTORE" required></div>`,
+    onSubmit: async (data) => {
+      if (data.confirm.trim() !== 'RESTORE') throw new Error('Type RESTORE (in capitals) to confirm');
+      const r = await api('POST', `/api/backups/${encodeURIComponent(b.name)}/restore`, { confirm: 'RESTORE' });
+      toast(`Restored. The data from before was saved as a backup.`);
+      setTimeout(boot, 600); // the restored data may have other users, settings or sign-ins
+      return r;
+    },
+  });
+  const btn = $('#modal-root button[type=submit]');
+  btn.classList.remove('primary');
+  btn.classList.add('danger');
+}
+
 async function pageSettings(page) {
   const twoStep = await api('GET', '/api/2fa');
   page.innerHTML = `
@@ -2729,6 +3043,10 @@ async function pageSettings(page) {
             <div class="field"><label>Currency code</label><input name="currency" value="${esc(state.settings.currency)}" maxlength="3" placeholder="USD, KES, EUR…"></div>
             <div class="field"><label>Sales tax / VAT %</label><input name="tax_rate" type="number" min="0" max="100" step="0.01" value="${esc(state.settings.tax_rate)}"></div>
           </div>
+          <div class="field"><input type="hidden" name="require_shift" value="0">
+            <label class="inline" style="color:var(--text);font-weight:500"><input type="checkbox" name="require_shift" value="1" ${state.settings.require_shift !== '0' ? 'checked' : ''} style="width:auto;min-height:0"> Require an open cash shift to sell</label>
+            <div class="muted" style="font-size:12px;margin-top:4px">Everyone opens a shift (counting the float) before selling, so every sale is in a cash count.</div></div>
+          <div class="field"><label>Warn about expiry dates (days before)</label><input name="expiry_warning_days" type="number" min="1" max="365" step="1" value="${esc(state.settings.expiry_warning_days ?? '30')}"></div>
           <div class="field"><label>Maximum discount staff may give (%)</label><input name="max_staff_discount" type="number" min="0" max="100" step="0.5" value="${esc(state.settings.max_staff_discount ?? '10')}">
             <div class="muted" style="font-size:12px;margin-top:4px">Bigger discounts are refused unless the user's role allows unlimited discounts. Admins have no limit. Set 0 to stop staff giving discounts.</div></div>
           <button class="btn primary" type="submit">Save</button>
@@ -2758,6 +3076,7 @@ async function pageSettings(page) {
         </div>
       </div>` : ''}
       ${can('settings.manage') ? appearanceCard() : ''}
+      ${isAdmin() ? '<div class="card" id="s-backups"><div class="card-head"><h2>Backups</h2></div><div class="card-pad"><div class="loading"><span class="spinner"></span> Loading…</div></div></div>' : ''}
       ${can('settings.manage') ? '</section>' : ''}
       <section class="settings-col" aria-label="Your account">
         <div class="col-title">Your account</div>
@@ -2849,6 +3168,7 @@ async function pageSettings(page) {
     };
   });
   if ($('#s-appearance')) bindAppearance();
+  if ($('#s-backups')) drawBackups();
   bindForm('#s-pass', async (data, f) => {
     const r = await api('POST', '/api/password', data);
     f.reset();

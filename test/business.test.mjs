@@ -18,6 +18,8 @@ const G = (p, cookie = admin) => call('GET', p, { cookie }).then((r) => r.json);
 before(async () => {
   ({ base } = await startServer());
   admin = sid(await call('POST', '/api/setup', { body: { username: 'boss', password: 'Copper#Lantern2026', shop_name: 'Biz' } }));
+  // These tests sell without opening cash shifts (shifts are tested in shifts-expiry.test.mjs).
+  await call('PUT', '/api/settings', { cookie: admin, body: { require_shift: '0' } });
   await A('/api/users', { username: 'till', password: 'blue tiger lamp river', role: 'staff' });
   staff = sid(await call('POST', '/api/login', { body: { username: 'till', password: 'blue tiger lamp river' } }));
 

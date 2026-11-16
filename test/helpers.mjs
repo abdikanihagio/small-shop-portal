@@ -20,18 +20,21 @@ const servers = [];
 const databases = [];
 
 // A PostgreSQL client for one database (default: the server's maintenance database "postgres").
-async function connect(database = 'postgres') {
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL || undefined, database });
+// admin: use the administrator account (PG_ADMIN_USER) when .env has one; otherwise the portal's.
+const hasAdmin = () => process.env.PG_ADMIN_USER && process.env.PG_ADMIN_USER !== process.env.PGUSER;
+async function connect(database = 'postgres', { admin = false } = {}) {
+  const asAdmin = admin && hasAdmin() ? { user: process.env.PG_ADMIN_USER, password: process.env.PG_ADMIN_PASSWORD } : {};
+  const client = new pg.Client({ connectionString: process.env.DATABASE_URL || undefined, database, ...asAdmin });
   await client.connect();
   return client;
 }
 
-// Creates an empty database for one test portal and returns its name.
+// Creates an empty database for one test portal, owned by the portal's own (restricted) account.
 export async function createDatabase() {
   const name = `shop_test_${crypto.randomBytes(6).toString('hex')}`;
-  const admin = await connect();
+  const admin = await connect('postgres', { admin: true });
   try {
-    await admin.query(`CREATE DATABASE ${name}`);
+    await admin.query(`CREATE DATABASE ${name}${hasAdmin() ? ` OWNER "${process.env.PGUSER.replace(/"/g, '""')}"` : ''}`);
   } finally {
     await admin.end();
   }
@@ -85,7 +88,7 @@ after(async () => {
     } catch {}
   }
   if (!databases.length) return;
-  const admin = await connect();
+  const admin = await connect('postgres', { admin: true });
   try {
     for (const name of databases.splice(0)) await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
   } finally {

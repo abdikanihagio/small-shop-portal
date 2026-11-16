@@ -9,6 +9,8 @@ const ROUTE_FILES = [
   require('./party.routes'),
   require('./report.routes'),
   require('./branding.routes'),
+  require('./backup.routes'),
+  require('./shift.routes'),
 ];
 
 function buildRouter() {

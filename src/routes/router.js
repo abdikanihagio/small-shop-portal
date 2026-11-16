@@ -9,12 +9,13 @@ class Router {
   }
 
   // opts.raw: the controller gets the request body as a Buffer (file uploads) instead of parsed JSON.
+  // opts.maxBody: a larger size limit for that upload (bytes).
   route(method, pattern, access, handler, opts = {}) {
     if (!isValidAccess(access)) throw new Error(`Bad access rule "${access}" on ${method} ${pattern}`);
     if (typeof handler !== 'function') throw new Error(`No controller for ${method} ${pattern}`);
     const keys = [];
     const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => (keys.push(k), '([^/]+)')) + '$');
-    this.routes.push({ method, pattern, re, keys, access, handler, raw: !!opts.raw });
+    this.routes.push({ method, pattern, re, keys, access, handler, raw: !!opts.raw, maxBody: opts.maxBody });
   }
 
   // The matching route and its decoded :params, or a 404.
