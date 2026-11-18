@@ -106,22 +106,23 @@ test('H3: staff discounts are capped by the owner setting; admins are not', asyn
 // ---------- M2: sessions ----------
 
 test('M2: password reset and change sign out old sessions', async () => {
-  await call('POST', '/api/users', { cookie: admin, body: { username: 'temp1', password: 'Temp#Pass2026', role: 'staff' } });
-  const old = await login('temp1', 'Temp#Pass2026');
+  // (The password must not contain the username, so this user is "worker1".)
+  await call('POST', '/api/users', { cookie: admin, body: { username: 'worker1', password: 'Temp#Pass2026', role: 'staff' } });
+  const old = await login('worker1', 'Temp#Pass2026');
   assert.equal((await call('GET', '/api/me', { cookie: old })).status, 200);
-  const id = (await call('GET', '/api/users', { cookie: admin })).json.find((u) => u.username === 'temp1').id;
+  const id = (await call('GET', '/api/users', { cookie: admin })).json.find((u) => u.username === 'worker1').id;
   await call('PUT', `/api/users/${id}`, { cookie: admin, body: { password: 'Temp#Pass2027' } });
   assert.equal((await call('GET', '/api/me', { cookie: old })).status, 401, 'old session revoked after admin reset');
 
-  const a = await login('temp1', 'Temp#Pass2027');
-  const b = await login('temp1', 'Temp#Pass2027');
+  const a = await login('worker1', 'Temp#Pass2027');
+  const b = await login('worker1', 'Temp#Pass2027');
   const r = await call('POST', '/api/password', { cookie: a, body: { current: 'Temp#Pass2027', password: 'Temp#Pass2028' } });
   assert.equal(r.status, 200);
   assert.equal(r.json.signed_out, 1);
   assert.equal((await call('GET', '/api/me', { cookie: a })).status, 200, 'current session kept');
   assert.equal((await call('GET', '/api/me', { cookie: b })).status, 401, 'other session revoked');
 
-  const c = await login('temp1', 'Temp#Pass2028');
+  const c = await login('worker1', 'Temp#Pass2028');
   assert.equal((await call('POST', '/api/sessions/revoke-others', { cookie: a })).json.signed_out, 1);
   assert.equal((await call('GET', '/api/me', { cookie: c })).status, 401);
 });
@@ -288,7 +289,7 @@ test('L6: the database stores only hashes of sign-in tokens, and idle sessions e
 
 test('L7: easy-to-guess passwords are refused for new and changed passwords', async () => {
   const add = (username, password) => call('POST', '/api/users', { cookie: admin, body: { username, password } });
-  for (const pw of ['password123', 'Password1', '12345678', 'qwertyuiop', 'aaaaaaaaaa', 'maryjones2026', 'Test-shop-2026']) {
+  for (const pw of ['password123', 'Password1', '12345678', 'qwertyuiop', 'aaaaaaaaaa', 'maryjones2026', 'Test-shop-2026', 'Admin@2026', 'Welcome#2026!', 'M@ryjones99']) {
     const r = await add('maryjones', pw);
     assert.equal(r.status, 400, pw);
     assert.match(r.json.error, /too easy/);

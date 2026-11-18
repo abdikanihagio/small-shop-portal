@@ -180,7 +180,7 @@ function renderShell() {
 
 async function router() {
   if (!state.admin) return;
-  const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
+  const [name, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
   const key = PAGES[name] ? name : 'dashboard';
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === key));
   $('#crumb').textContent = PAGES[key].title;

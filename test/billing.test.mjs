@@ -11,6 +11,19 @@ let answer = { status: 200, body: { state: 'ok', message: '' } };
 let seenAuth = '';
 const fake = http.createServer((req, res) => {
   seenAuth = req.headers.authorization || '';
+  if (req.url === '/api/licence/account') {
+    if (answer.status !== 200) return res.writeHead(answer.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer.body));
+    return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+      ...answer.body,
+      business_name: 'Waxool',
+      payment_instructions: 'Pay by EVC Plus.',
+      plan: { monthly_fee_cents: 2500, currency: 'USD', billing_day: 1, grace_days: 7, status: 'active' },
+      balance_cents: 2500,
+      invoices: [{ number: 'INV-2026-0001', description: 'Monthly portal fee', issued_on: '2026-11-01', due_on: '2026-11-01', status: 'open', amount_cents: 2500, paid_cents: 0, balance_cents: 2500 }],
+      payments: [],
+    }));
+  }
+  if (answer.redirect) return res.writeHead(302, { Location: answer.redirect }).end();
   if (req.url !== '/api/licence') return res.writeHead(404).end();
   res.writeHead(answer.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(answer.body));
 });
@@ -51,6 +64,17 @@ test('payment due: a reminder on every screen, everything still works', async ()
   assert.equal((await call('POST', '/api/products', { sku: 'A2', name: 'Pear', cost: 1, price: 2, stock: 5 })).status, 200);
 });
 
+test('owners and admins see their subscription: balance, invoices and payments; cashiers do not', async () => {
+  const a = await call('GET', '/api/billing/account');
+  assert.equal(a.status, 200, a.text);
+  assert.deepEqual([a.json.state, a.json.balance_cents, a.json.invoices.length, a.json.plan.monthly_fee_cents], ['warn', 2500, 1, 2500]);
+  assert.ok(!a.text.includes(KEY), 'the key never reaches the browser');
+  await call('POST', '/api/users', { username: 'till', password: 'Staff#Pass2026', role: 'staff' });
+  const till = sid(await request(S.base, 'POST', '/api/login', { body: { username: 'till', password: 'Staff#Pass2026' } }));
+  assert.equal((await request(S.base, 'GET', '/api/billing/account', { cookie: till })).status, 403);
+  assert.equal((await request(S.base, 'GET', '/api/billing', { cookie: till })).json.state, 'warn', 'everyone still sees the reminder');
+});
+
 test('overdue: read-only, but signing in, viewing and backups still work', async () => {
   answer = { status: 200, body: { state: 'locked', message: 'This portal is read-only because $25.00 is overdue.' } };
   await waitFor('locked');
@@ -68,9 +92,20 @@ test('if the admin portal is unreachable or refuses the key, the last answer is 
   answer = { status: 401, body: { error: 'Invalid licence key' } };
   await sleep(700);
   assert.equal((await call('GET', '/api/billing')).json.state, 'locked');
+  assert.equal((await call('GET', '/api/billing/account')).status, 502, 'the Subscription page says it cannot load');
   answer = { status: 200, body: { state: 'ok', message: '' } };
   await waitFor('ok');
   assert.equal((await call('POST', '/api/products', { sku: 'A4', name: 'Fig', cost: 1, price: 2, stock: 5 })).status, 200, 'paid: works again');
+});
+
+test('the licence key never follows a redirect and is never sent over plain http to another computer', async () => {
+  answer = { status: 200, body: { state: 'locked', message: 'x' }, redirect: 'http://127.0.0.1:9/steal' };
+  await sleep(700);
+  assert.equal((await call('GET', '/api/billing')).json.state, 'ok', 'redirect refused: last answer (ok) kept');
+  answer = { status: 200, body: { state: 'ok', message: '' } };
+  const P = await startServer({ env: { BILLING_URL: 'http://billing.example.com', BILLING_KEY: KEY } });
+  const c = sid(await request(P.base, 'POST', '/api/setup', { body: { username: 'owner', password: 'Copper#Lantern2026' } }));
+  assert.deepEqual((await request(P.base, 'GET', '/api/billing', { cookie: c })).json, { state: 'ok', enabled: false }, 'switched off rather than send the key unencrypted');
 });
 
 test('the last answer survives a restart, and a shop without billing settings is never locked', async () => {

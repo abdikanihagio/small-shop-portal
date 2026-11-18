@@ -140,6 +140,10 @@ async function findShop(id) {
 async function updateShop(admin, id, body) {
   const old = await findShop(id);
   const s = readShop(body, old);
+  // Invoices show amounts in the shop's currency; changing it would silently relabel old invoices.
+  if (s.currency !== old.currency && (await db.get('SELECT 1 FROM invoices WHERE shop_id = ? LIMIT 1', id))) {
+    throw bad(`This shop already has invoices in ${old.currency}; its currency can no longer be changed`);
+  }
   await db.run(
     `UPDATE shops SET name = ?, contact_name = ?, phone = ?, email = ?, portal_url = ?, monthly_fee_cents = ?, currency = ?,
        billing_day = ?, grace_days = ?, started_on = ?, notes = ? WHERE id = ?`,
@@ -366,7 +370,35 @@ async function licence(key) {
   return { shop: shop.name, checked_at: new Date().toISOString(), ...p };
 }
 
+// What a shop owner sees on their Subscription page: plan, balance, invoices and payments.
+// Internal notes, void reasons, who recorded a payment and the activity log are not included.
+async function account(key) {
+  const base = await licence(key);
+  const shop = await db.get('SELECT * FROM shops WHERE key_hash = ?', sha256(key));
+  const invoices = (await db.all(`${INVOICE_SELECT} WHERE i.shop_id = ? AND i.status <> 'void' ORDER BY i.issued_on DESC, i.id DESC LIMIT 36`, shop.id)).map(withBalance);
+  const payments = await db.all(
+    `SELECT p.amount_cents, p.method, p.reference, p.paid_on, i.number AS invoice_number
+     FROM payments p JOIN invoices i ON i.id = p.invoice_id
+     WHERE p.shop_id = ? AND p.reversed_at IS NULL ORDER BY p.paid_on DESC, p.id DESC LIMIT 36`,
+    shop.id
+  );
+  const settings = await getSettings();
+  return {
+    ...base,
+    business_name: settings.business_name,
+    payment_instructions: settings.payment_instructions,
+    plan: { monthly_fee_cents: shop.monthly_fee_cents, currency: shop.currency, billing_day: shop.billing_day, grace_days: shop.grace_days, status: shop.status, started_on: shop.started_on },
+    balance_cents: invoices.filter((i) => i.status === 'open').reduce((t, i) => t + i.balance_cents, 0),
+    invoices: invoices.map((i) => ({
+      number: i.number, description: i.description, issued_on: i.issued_on, due_on: i.due_on, status: i.status,
+      amount_cents: i.amount_cents, paid_cents: i.paid_cents, balance_cents: i.balance_cents,
+    })),
+    payments,
+  };
+}
+
 module.exports = {
+  account,
   today, addDays, portalState, getSettings, saveSettings,
   createShop, updateShop, setStatus, regenerateKey, listShops, shopDetail,
   generateDue, createInvoice, getInvoice, listInvoices, changeDueDate, voidInvoice,

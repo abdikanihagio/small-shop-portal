@@ -9,6 +9,7 @@ module.exports = (route) => {
 
   route('GET', '/api/me', 'user', c.me);
   route('GET', '/api/billing', 'user', c.billing);
+  route('GET', '/api/billing/account', 'admin', c.billingAccount); // the Subscription page: owners and admins
   route('POST', '/api/password', 'user', c.changePassword);
   route('POST', '/api/sessions/revoke-others', 'user', c.signOutOtherDevices);
 

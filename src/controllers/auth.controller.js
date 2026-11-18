@@ -49,6 +49,7 @@ module.exports = {
 
   me: async ({ user }) => ({ user, settings: await settings.get(), billing: billing.status() }),
   billing: () => billing.status(),
+  billingAccount: () => billing.account(),
 
   changePassword: ({ req, actor, body }) => auth.changePassword(actor, String(body.current ?? ''), body.password, sessionToken(req)),
   signOutOtherDevices: ({ req, actor }) => auth.signOutOtherDevices(actor, sessionToken(req)),

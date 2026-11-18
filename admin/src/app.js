@@ -40,10 +40,10 @@ route('GET', '/api/me', 'admin', async ({ admin }) => ({ admin, settings: await 
 route('POST', '/api/password', 'admin', ({ req, admin, body }) => auth.changePassword(admin, body.current, body.password, cookieToken(req)));
 
 // ---- the licence check each shop portal makes (no cookie; the shop's licence key) ----
-route('GET', '/api/licence', 'licence', async ({ req }) => {
-  const m = String(req.headers.authorization || '').match(/^Bearer\s+(\S+)$/);
-  return billing.licence(m ? m[1] : '');
-});
+const bearer = (req) => String(req.headers.authorization || '').match(/^Bearer\s+(\S+)$/)?.[1] || '';
+route('GET', '/api/licence', 'licence', ({ req }) => billing.licence(bearer(req)));
+// The shop owner's Subscription page: balance, invoices and payments of that shop only.
+route('GET', '/api/licence/account', 'licence', ({ req }) => billing.account(bearer(req)));
 
 // ---- dashboard, shops, invoices, payments ----
 route('GET', '/api/dashboard', 'admin', () => billing.dashboard());
@@ -94,6 +94,8 @@ function createApp() {
       if (!r) throw H.notFound();
       const m = url.pathname.match(r.re);
       const params = Object.fromEntries(r.keys.map((k, i) => [k, Number(m[i + 1])]));
+      // Ids are database integers: anything larger simply does not exist.
+      if (Object.values(params).some((n) => !Number.isSafeInteger(n) || n > 2147483647)) throw H.notFound();
       const ip = H.clientIp(req);
       let admin = null;
       if (r.access === 'licence') licenceRate(ip);

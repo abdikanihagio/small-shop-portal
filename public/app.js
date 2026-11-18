@@ -175,6 +175,7 @@ const ICONS = {
   accounting: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  subscription: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
   users: '<circle cx="12" cy="7.5" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/><path d="m16.5 12.5 1.2 1.2 2.6-2.6"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
@@ -672,13 +673,14 @@ const PAGES = {
   accounting: { title: 'Accounting', render: pageAccounting, perms: ['accounting'], group: 'Finance' },
   activity: { title: 'Activity log', render: pageActivity, perms: ['activity.view'], group: 'Admin' },
   users: { title: 'Users & roles', render: pageUsers, adminOnly: true, group: 'Admin' },
+  subscription: { title: 'Subscription', render: pageSubscription, adminOnly: true, billingOnly: true, group: 'Admin' },
   settings: { title: 'Settings', render: pageSettings, group: 'Admin' },
 };
 
 const initials = (name) => String(name).trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
 function renderShell() {
-  const allowed = Object.entries(PAGES).filter(([, p]) => (p.adminOnly ? isAdmin() : !p.perms || can(...p.perms)));
+  const allowed = Object.entries(PAGES).filter(([, p]) => (p.adminOnly ? isAdmin() : !p.perms || can(...p.perms)) && (!p.billingOnly || state.billing?.enabled));
   const groups = [...new Set(allowed.map(([, p]) => p.group))];
   const nav = groups
     .map((g) => `<div class="nav-group">${g ? `<div class="nav-label">${g}</div>` : ''}${allowed
@@ -760,7 +762,48 @@ function drawBilling() {
   if (!box) return;
   const b = state.billing || { state: 'ok' };
   box.className = b.state === 'ok' ? '' : `billing-banner ${b.state}`;
-  box.innerHTML = b.state === 'ok' ? '' : `<strong>${b.state === 'locked' ? 'Read-only:' : 'Payment due:'}</strong> ${esc(b.message || '')}`;
+  box.innerHTML = b.state === 'ok' ? '' : `<strong>${b.state === 'locked' ? 'Read-only:' : 'Payment due:'}</strong> ${esc(b.message || '')}${isAdmin() ? ' <a href="#/subscription">View invoices</a>' : ''}`;
+}
+
+// ---------- subscription (what this shop owes its portal provider) ----------
+
+async function pageSubscription(page) {
+  const a = await api('GET', '/api/billing/account');
+  const cur = a.plan.currency;
+  const fee = (c) => {
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format((c || 0) / 100);
+    } catch {
+      return `${cur} ${((c || 0) / 100).toFixed(2)}`;
+    }
+  };
+  const status = { ok: ['ok', 'Paid up'], warn: ['warn', 'Payment due'], locked: ['danger', 'Read-only'] }[a.state] || ['', a.state];
+  const invBadge = (i) => (i.status === 'paid' ? '<span class="badge ok">Paid</span>' : i.due_on < localDate() ? '<span class="badge danger">Overdue</span>' : '<span class="badge warn">Due</span>');
+  page.innerHTML = `
+    <div class="page-head"><div><h1>Subscription</h1><div class="muted" style="font-size:13px">Your portal plan with ${esc(a.business_name)}</div></div></div>
+    <div class="grid kpis" style="margin-bottom:18px">
+      <div class="card kpi"><div class="label">Status</div><div class="value" style="font-size:20px"><span class="badge ${status[0]}" style="font-size:14px;text-transform:none">${status[1]}</span></div>
+        <div class="sub">${a.state === 'warn' && a.lock_on ? `Pay before ${fmtDate(a.lock_on)}` : a.state === 'locked' ? 'Changes are paused until payment' : 'Nothing to do'}</div></div>
+      <div class="card kpi"><div class="label">Balance due</div><div class="value ${a.balance_cents ? 'neg-num' : ''}">${fee(a.balance_cents)}</div></div>
+      <div class="card kpi"><div class="label">Monthly fee</div><div class="value">${fee(a.plan.monthly_fee_cents)}</div><div class="sub">billed on day ${a.plan.billing_day} of each month</div></div>
+    </div>
+    ${a.payment_instructions ? `<div class="card" style="margin-bottom:18px"><div class="card-pad">
+      <p style="margin:0"><strong>How to pay:</strong> ${esc(a.payment_instructions)}</p>
+      <p class="muted" style="font-size:12.5px;margin:10px 0 0">After ${esc(a.business_name)} records your payment, the portal updates within about 15 minutes. If the portal becomes read-only, nothing is deleted: you can still view everything and download backups.</p>
+    </div></div>` : ''}
+    <div class="card table-wrap" style="margin-bottom:18px"><div class="card-head"><h2>Invoices</h2></div>
+      ${a.invoices.length ? `<table><thead><tr><th>Invoice</th><th>Description</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th class="num">Paid</th><th class="num">Balance</th><th>Status</th></tr></thead><tbody>
+        ${a.invoices.map((i) => `<tr><td><strong>${esc(i.number)}</strong></td><td>${esc(i.description)}</td><td>${fmtDate(i.issued_on)}</td><td>${fmtDate(i.due_on)}</td>
+          <td class="num">${fee(i.amount_cents)}</td><td class="num">${fee(i.paid_cents)}</td><td class="num">${fee(i.balance_cents)}</td><td>${invBadge(i)}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No invoices yet</div>'}
+    </div>
+    <div class="card table-wrap"><div class="card-head"><h2>Payments received</h2></div>
+      ${a.payments.length ? `<table><thead><tr><th>Date</th><th>Invoice</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
+        ${a.payments.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${esc(p.invoice_number)}</td><td>${esc(p.method)}</td><td class="muted">${esc(p.reference) || '—'}</td><td class="num">${fee(p.amount_cents)}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">No payments yet</div>'}
+    </div>`;
+  state.billing = { ...(state.billing || {}), state: a.state, message: a.message };
+  drawBilling();
 }
 
 async function router() {
@@ -769,7 +812,7 @@ async function router() {
   api('GET', '/api/billing').then((b) => ((state.billing = b), drawBilling())).catch(() => {});
   let [name, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
   const pg = PAGES[name];
-  if (!pg || (pg.adminOnly && !isAdmin()) || (pg.perms && !can(...pg.perms))) name = 'dashboard';
+  if (!pg || (pg.adminOnly && !isAdmin()) || (pg.perms && !can(...pg.perms)) || (pg.billingOnly && !state.billing?.enabled)) name = 'dashboard';
   state.routeArg = arg;
   state.route = name;
   $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === name));

@@ -56,11 +56,19 @@ function method(v) {
   return s;
 }
 
+// Words people build passwords from, then add a symbol and a year ("Admin@2026").
+const COMMON_BASES = new Set(
+  `password passw pass admin administrator root welcome waxool shop store owner manager user login letmein
+  qwerty asdf abc abcd master test hello love money secret sunshine dragon monkey football summer winter`.split(/\s+/)
+);
+
 function password(pw, username = '') {
   pw = String(pw ?? '');
   if (pw.length < 10) throw bad('Password must be at least 10 characters');
   if (pw.length > 256) throw bad('Password is too long');
-  if (/^(.)\1+$/.test(pw) || (username.length >= 3 && pw.toLowerCase().includes(username.toLowerCase())) || /^(password|1234567890|qwertyuiop)/i.test(pw)) {
+  const letters = pw.toLowerCase().replace(/[^a-z]/g, '');
+  const wordPlusNumbers = !letters || COMMON_BASES.has(letters) || letters === username.toLowerCase().replace(/[^a-z]/g, '');
+  if (wordPlusNumbers || /^(.)\1+$/.test(pw) || (username.length >= 3 && pw.toLowerCase().includes(username.toLowerCase())) || /^(password|1234567890|qwertyuiop)/i.test(pw)) {
     throw bad('This password is too easy to guess. Try a longer phrase, for example three unrelated words.');
   }
   return pw;

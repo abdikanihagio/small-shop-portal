@@ -193,6 +193,42 @@ test('the dashboard adds it all up; settings feed the message shops see', async 
   assert.match(shops.find((s) => s.name === 'Grace Shop').portal.message, /Pay by EVC Plus to 610000000\./);
 });
 
+test("a shop's account shows its own plan, invoices and payments, and nothing internal", async () => {
+  const one = await ok(call('POST', '/api/shops', { name: 'Account Shop', monthly_fee: 40, billing_day: 1, started_on: day(40), notes: 'secret internal note' }));
+  const other = await ok(call('POST', '/api/shops', { name: 'Other Shop', monthly_fee: 99, billing_day: 1, started_on: day(40) }));
+  const inv = await ok(call('POST', `/api/shops/${one.id}/invoices`, { description: 'Monthly portal fee', amount: 40, due_on: day(0) }));
+  await ok(call('POST', `/api/invoices/${inv.id}/payments`, { amount: 15, method: 'Zaad', reference: 'ZX9', note: 'internal payment note' }));
+  const voided = await ok(call('POST', `/api/shops/${one.id}/invoices`, { description: 'Wrong', amount: 5, due_on: day(0) }));
+  await ok(call('POST', `/api/invoices/${voided.id}/void`, { reason: 'internal void reason' }));
+  await ok(call('POST', `/api/shops/${other.id}/invoices`, { description: 'Not yours', amount: 99, due_on: day(0) }));
+
+  const r = await request(A.base, 'GET', '/api/licence/account', { headers: { Authorization: `Bearer ${one.licence_key}` } });
+  assert.equal(r.status, 200, r.text);
+  const a = r.json;
+  assert.deepEqual([a.state, a.balance_cents, a.plan.monthly_fee_cents, a.plan.billing_day], ['warn', 2500, 4000, 1]);
+  assert.deepEqual(a.invoices.map((i) => [i.description, i.amount_cents, i.paid_cents, i.balance_cents]), [['Monthly portal fee', 4000, 1500, 2500]], 'void and other shops\' invoices are not shown');
+  assert.deepEqual(a.payments.map((p) => [p.amount_cents, p.method, p.reference]), [[1500, 'Zaad', 'ZX9']]);
+  for (const hidden of ['secret internal note', 'internal payment note', 'internal void reason', 'boss', 'Not yours', 'key_hash']) {
+    assert.ok(!r.text.includes(hidden), `must not show "${hidden}"`);
+  }
+  assert.equal((await request(A.base, 'GET', '/api/licence/account')).status, 401, 'needs the key');
+});
+
+test('review fixes: currency locked once invoiced, huge ids are 404, predictable passwords refused', async () => {
+  const { id } = await ok(call('POST', '/api/shops', { name: 'Currency Shop', monthly_fee: 10, billing_day: 1, started_on: day(40) }));
+  await ok(call('PUT', `/api/shops/${id}`, { currency: 'EUR' }), 'no invoices yet: may change');
+  await ok(call('POST', `/api/shops/${id}/invoices`, { description: 'Setup', amount: 5, due_on: day(5) }));
+  const r = await call('PUT', `/api/shops/${id}`, { currency: 'USD' });
+  assert.equal(r.status, 400);
+  assert.match(r.json.error, /already has invoices in EUR/);
+  assert.equal((await call('PUT', `/api/shops/${id}`, { name: 'Currency Shop 2' })).status, 200, 'other changes still fine');
+  assert.equal((await call('GET', '/api/shops/99999999999')).status, 404);
+  assert.equal((await call('GET', '/api/invoices/2147483648')).status, 404);
+  for (const weak of ['Admin@2026!', 'Password#2026', '2026202620!!', 'Boss@20262026']) {
+    assert.equal((await call('POST', '/api/password', { current: 'Copper lantern river 7', password: weak })).status, 400, weak);
+  }
+});
+
 test('over the internet the first admin needs the setup token', async () => {
   const B = await startAdmin({ TRUST_PROXY: '1', SETUP_TOKEN: 'a-long-random-setup-token-123456' });
   const body = { username: 'remote', password: 'Brass kettle meadow 4' };
