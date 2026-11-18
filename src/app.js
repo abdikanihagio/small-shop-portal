@@ -11,6 +11,13 @@ const { requestGuard } = require('./middleware/request-guard');
 const { handleError } = require('./middleware/error-handler');
 const { readRaw, readJson, sendJson, clientIp, visitorHost } = require('./utils/http');
 const { TRUST_PROXY } = require('./config/environment');
+const billing = require('./services/billing.service');
+const { HttpError } = require('./utils/http-error');
+
+const ALLOWED_WHEN_LOCKED = new Set([
+  '/api/login', '/api/login/verify', '/api/logout', '/api/setup', '/api/password', '/api/sessions/revoke-others',
+  '/api/2fa/setup', '/api/2fa/enable', '/api/2fa/disable', '/api/2fa/recovery-codes', '/api/backups',
+]);
 
 function createApp() {
   const router = buildRouter();
@@ -20,6 +27,11 @@ function createApp() {
     const user = await authenticate(req);
     authorize(route.access, user);
     requestGuard(req, route);
+    // Overdue subscription: read-only. Signing in and out, own password / two-step login and making
+    // a backup still work, so nobody is locked out of their own data.
+    if (req.method !== 'GET' && billing.isLocked() && !ALLOWED_WHEN_LOCKED.has(route.pattern)) {
+      throw new HttpError(423, 'This portal is read-only until the monthly payment is received. Nothing can be changed for now; you can still view everything and download backups.');
+    }
     const body = !['POST', 'PUT'].includes(req.method) ? {} : route.raw ? await readRaw(req, route.maxBody) : await readJson(req);
     // "actor" is who is acting, for permission checks and the activity log.
     const ip = clientIp(req);

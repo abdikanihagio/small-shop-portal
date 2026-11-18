@@ -712,6 +712,7 @@ function renderShell() {
             </details>
           </div>
         </header>
+        <div id="billing-banner"></div>
         <main class="main" id="page"></main>
       </div>
     </div>`;
@@ -753,9 +754,19 @@ document.addEventListener('click', (e) => {
   if (m && !m.contains(e.target)) m.open = false;
 });
 
+// Subscription reminder (payment due) or read-only notice (overdue), from the Waxool admin portal.
+function drawBilling() {
+  const box = $('#billing-banner');
+  if (!box) return;
+  const b = state.billing || { state: 'ok' };
+  box.className = b.state === 'ok' ? '' : `billing-banner ${b.state}`;
+  box.innerHTML = b.state === 'ok' ? '' : `<strong>${b.state === 'locked' ? 'Read-only:' : 'Payment due:'}</strong> ${esc(b.message || '')}`;
+}
+
 async function router() {
   if (!state.user) return;
   applyColours();
+  api('GET', '/api/billing').then((b) => ((state.billing = b), drawBilling())).catch(() => {});
   let [name, arg] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
   const pg = PAGES[name];
   if (!pg || (pg.adminOnly && !isAdmin()) || (pg.perms && !can(...pg.perms))) name = 'dashboard';
@@ -779,10 +790,12 @@ async function boot() {
     const me = await api('GET', '/api/me');
     state.user = me.user;
     state.settings = me.settings;
+    state.billing = me.billing;
   } catch {
     return renderAuth();
   }
   renderShell();
+  drawBilling();
   router();
 }
 
@@ -2125,6 +2138,11 @@ function productForm(p = {}) {
       ${isNew ? '<div class="field"><label>Opening stock</label><input name="stock" type="number" min="0" step="1" value="0"></div>' : ''}
       <div class="field"><label>Reorder level (alert when stock falls to)</label><input name="reorder_level" type="number" min="0" step="1" value="${p.reorder_level ?? 5}"></div>
     </div>
+    ${isNew ? `<div class="row">
+      <div class="field"><label>Production date</label><input name="production_date" type="date" max="${localDate()}"></div>
+      <div class="field"><label>Expiry date</label><input name="expiry_date" type="date"></div>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:-4px 0 0">Optional: dates of the opening stock. With an expiry date it appears in Inventory → Expiry dates.</p>` : ''}
     ${isNew ? '' : `<label class="inline" style="color:var(--text)"><input type="checkbox" name="active" ${p.active ? 'checked' : ''} style="width:auto;min-height:0"> Active (shown in Pos Sales)</label>
       <p class="muted" style="font-size:12.5px;margin-bottom:0">Stock is changed from the Inventory page (receive stock or adjust count).</p>`}`;
 }
@@ -2403,10 +2421,10 @@ async function pageInventory(page, tab = state.routeArg === 'expiry' ? 'expiry' 
     body.innerHTML = batches.batches.length
       ? `<table><thead><tr><th>Product</th><th>Expiry date</th><th>Status</th><th class="num">Left</th><th class="num">Received</th><th>Delivery</th>${can('inventory.manage') ? '<th></th>' : ''}</tr></thead><tbody>
         ${batches.batches.map((b) => `<tr><td><strong>${esc(b.product_name)}</strong><div class="muted" style="font-size:12px">${esc(b.sku)}</div></td>
-          <td>${fmtDate(b.expiry_date)}</td>
+          <td>${fmtDate(b.expiry_date)}${b.production_date ? `<div class="muted" style="font-size:12px">Made ${fmtDate(b.production_date)}</div>` : ''}</td>
           <td><span class="badge ${b.state === 'expired' ? 'danger' : b.state === 'soon' ? 'warn' : 'ok'}" style="text-transform:none">${label(b)}</span></td>
           <td class="num">${b.qty_left} ${esc(b.unit)}</td><td class="num muted">${b.qty_received}</td>
-          <td class="muted">${b.purchase_id ? `#${b.purchase_id}${b.supplier ? ` · ${esc(b.supplier)}` : ''}${b.invoice ? ` · ${esc(b.invoice)}` : ''}` : '—'}</td>
+          <td class="muted">${b.purchase_id ? `#${b.purchase_id}${b.supplier ? ` · ${esc(b.supplier)}` : ''}${b.invoice ? ` · ${esc(b.invoice)}` : ''}` : 'Opening stock'}</td>
           ${can('inventory.manage') ? `<td class="num"><button class="btn sm ${b.state === 'expired' ? 'danger' : ''}" data-writeoff="${b.id}">Write off</button></td>` : ''}</tr>`).join('')}
         </tbody></table>
         <div class="card-pad muted" style="font-size:12.5px;border-top:1px solid var(--border)">Sales take stock from the batch that expires first. Stock received without an expiry date isn't listed here.

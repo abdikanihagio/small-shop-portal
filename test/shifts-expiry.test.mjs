@@ -186,6 +186,22 @@ test('an open shift is listed whatever dates are chosen', async () => {
 
 // ---------- expiry dates ----------
 
+test('a new product can take production and expiry dates for its opening stock', async () => {
+  const o = as(owner);
+  const made = day(-20), expires = day(300);
+  const p = await ok(o.post('/api/products', { sku: 'JUICE', name: 'Juice', cost: 1, price: 2, stock: 12, production_date: made, expiry_date: expires }));
+  const b = (await ok(o.get('/api/inventory/batches'))).batches.find((x) => x.product_id === p.id);
+  assert.deepEqual([b.production_date, b.expiry_date, b.qty_left, b.qty_received], [made, expires, 12, 12], 'the opening stock is one batch');
+  const bad = (body) => o.post('/api/products', { cost: 1, price: 2, ...body });
+  assert.equal((await bad({ sku: 'J2', name: 'J2', stock: 0, expiry_date: expires })).status, 400, 'dates need opening stock');
+  assert.equal((await bad({ sku: 'J3', name: 'J3', stock: 5, production_date: made })).status, 400, 'production date alone is not enough');
+  assert.equal((await bad({ sku: 'J4', name: 'J4', stock: 5, production_date: expires, expiry_date: made })).status, 400, 'expiry after production');
+  assert.equal((await bad({ sku: 'J5', name: 'J5', stock: 5, production_date: day(3), expiry_date: day(300) })).status, 400, 'production not in the future');
+  assert.equal((await bad({ sku: 'J6', name: 'J6', stock: 5, expiry_date: '2026-02-30' })).status, 400, 'a real date');
+  const plain = await ok(o.post('/api/products', { sku: 'J7', name: 'Plain', cost: 1, price: 2, stock: 3 }));
+  assert.ok(!(await ok(o.get('/api/inventory/batches'))).batches.some((x) => x.product_id === plain.id), 'no dates: no batch');
+});
+
 test('stock received with expiry dates is sold soonest-expiry first; voids and returns put it back', async () => {
   const o = as(owner);
   await ok(o.post('/api/shifts/open', { float: 0 }));
@@ -256,5 +272,6 @@ test('expiry dates must be real dates; backups include shifts and batches', asyn
   const file = Buffer.from(await (await fetch(`${S.base}/api/backups/${b.name}/download`, { headers: { Cookie: owner } })).arrayBuffer());
   const doc = JSON.parse(zlib.gunzipSync(file).toString());
   assert.equal(doc.tables.cash_shifts.length, 9, 'every shift opened in these tests');
-  assert.equal(doc.tables.stock_batches.length, 3, 'three lines had expiry dates');
+  assert.equal(doc.tables.stock_batches.length, 4, 'three received lines and one opening stock had expiry dates');
+  assert.ok(doc.tables.stock_batches.some((b) => b.production_date), 'production dates are backed up too');
 });

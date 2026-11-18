@@ -6,6 +6,7 @@ const { tlsOptions, useTls } = require('./src/config/tls');
 const { initDatabase, closeDatabase } = require('./src/config/database');
 const { createApp } = require('./src/app');
 const backups = require('./src/services/backup.service');
+const billing = require('./src/services/billing.service');
 
 const app = createApp();
 const server = useTls ? https.createServer(tlsOptions, app) : http.createServer(app);
@@ -19,6 +20,7 @@ initDatabase().then(
       else if (!useTls) console.log('Note: not using HTTPS. Run scripts\\create-https-cert.ps1 to encrypt connections from other devices.');
       if (HOST) console.log(`Only accepting connections on ${HOST}`);
       backups.startSchedule(); // a daily automatic backup while the portal runs
+      billing.startSchedule(); // subscription status from the Waxool admin portal (when configured)
     }),
   (err) => {
     console.error(err.message);

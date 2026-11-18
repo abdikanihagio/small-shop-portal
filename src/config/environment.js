@@ -29,6 +29,11 @@ module.exports = Object.freeze({
   // portal (usually 1). Then the visitor's address comes from X-Forwarded-For, cookies are HTTPS-only
   // and plain HTTP is redirected. Leave unset (0) when the portal is reached directly.
   TRUST_PROXY: Math.max(0, Math.floor(Number(process.env.TRUST_PROXY) || 0)),
+  // Subscription check with the Waxool admin portal (ad.waxool.com). Both unset = no billing check
+  // (a shop running its own copy). BILLING_KEY is the shop's licence key: a secret.
+  BILLING_URL: (process.env.BILLING_URL || '').replace(/\/+$/, ''),
+  BILLING_KEY: process.env.BILLING_KEY || '',
+  BILLING_CHECK_MS: Number(process.env.BILLING_CHECK_MS) || 15 * 60e3,
   TLS_PFX: process.env.TLS_PFX || '',
   TLS_PASSPHRASE: process.env.TLS_PASSPHRASE,
   TLS_CERT: process.env.TLS_CERT || '',

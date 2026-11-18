@@ -4,13 +4,17 @@ const productImport = require('../services/product-import.service');
 const inventory = require('../services/inventory.service');
 const batches = require('../services/batch.service');
 const { id, int, str } = require('../validators/common.validator');
-const { readProduct, readOpeningStock } = require('../validators/product.validator');
+const { readProduct, readOpeningStock, readOpeningDates } = require('../validators/product.validator');
 const { readRestock, readAdjustment } = require('../validators/inventory.validator');
 const { sendDownload, XLSX_TYPE } = require('../utils/http');
 
 module.exports = {
   list: ({ user, query }) => products.list(user, { includeInactive: query.get('all') === '1' }),
-  create: ({ actor, body }) => products.create(actor, readProduct(body), readOpeningStock(body)),
+  create: ({ actor, body }) => {
+    const product = readProduct(body);
+    const stock = readOpeningStock(body);
+    return products.create(actor, product, stock, readOpeningDates(body, stock));
+  },
   update: ({ actor, params, body }) => products.update(actor, id(params.id), readProduct(body), body.active !== false),
 
   // The file arrives as the raw request body (application/octet-stream).

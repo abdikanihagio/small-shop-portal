@@ -89,6 +89,14 @@ The portal can also run on a hosting service, reachable from anywhere at e.g. `h
 6. **Before you share the address:** turn on two-step login for every account (Settings → Account):
    the sign-in page is now on the internet.
 
+### Monthly subscription (Waxool admin portal)
+
+A shop that rents the portal is billed from the Waxool admin portal ([admin/](admin/README.md),
+ad.waxool.com). Set `BILLING_URL` (the admin portal's address) and `BILLING_KEY` (the shop's licence key)
+on the shop portal: it then checks every 15 minutes and shows a reminder when a payment is due, and
+becomes **read-only** when it is overdue (signing in, viewing and backups still work; nothing is
+deleted). Without these two settings the portal never checks and is never locked.
+
 ## What's included
 
 | Area | Features |

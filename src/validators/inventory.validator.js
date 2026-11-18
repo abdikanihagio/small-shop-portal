@@ -2,15 +2,16 @@ const { MAX_QTY, PURCHASE_PAYMENT_METHODS } = require('../config/constants');
 const { bad } = require('../utils/http-error');
 const { str, int, money } = require('./common.validator');
 
-// An optional expiry date: "YYYY-MM-DD", a real calendar date.
-function readExpiry(v) {
+// An optional date ("YYYY-MM-DD", a real calendar date), e.g. an expiry or production date.
+function readBatchDate(v, field = 'Expiry date') {
   if (v === undefined || v === null || v === '') return null;
   const s = String(v);
   const d = new Date(`${s}T12:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw bad('Expiry date must be a real date (YYYY-MM-DD)');
-  if (s < '2000-01-01' || s > '2100-12-31') throw bad('Expiry date is out of range');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw bad(`${field} must be a real date (YYYY-MM-DD)`);
+  if (s < '2000-01-01' || s > '2100-12-31') throw bad(`${field} is out of range`);
   return s;
 }
+const readExpiry = (v) => readBatchDate(v, 'Expiry date');
 
 // One delivery from a supplier, with one or more product lines.
 function readRestock(body) {
@@ -36,4 +37,4 @@ function readAdjustment(body) {
   };
 }
 
-module.exports = { readRestock, readAdjustment };
+module.exports = { readRestock, readAdjustment, readBatchDate };

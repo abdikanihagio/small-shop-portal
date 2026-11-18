@@ -3,6 +3,7 @@ const auth = require('../services/auth.service');
 const twoStep = require('../services/two-step.service');
 const settings = require('../services/settings.service');
 const sessions = require('../services/session.service');
+const billing = require('../services/billing.service');
 const { sessionToken } = require('../middleware/authenticate');
 const { str } = require('../validators/common.validator');
 const { readUsername } = require('../validators/admin.validator');
@@ -46,7 +47,8 @@ module.exports = {
     return { ok: true };
   },
 
-  me: async ({ user }) => ({ user, settings: await settings.get() }),
+  me: async ({ user }) => ({ user, settings: await settings.get(), billing: billing.status() }),
+  billing: () => billing.status(),
 
   changePassword: ({ req, actor, body }) => auth.changePassword(actor, String(body.current ?? ''), body.password, sessionToken(req)),
   signOutOtherDevices: ({ req, actor }) => auth.signOutOtherDevices(actor, sessionToken(req)),

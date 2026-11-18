@@ -490,3 +490,9 @@ code { font-family: var(--mono); font-size: .92em; background: var(--surface-3);
 .open-shift-box { margin-bottom: 18px; border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); background: color-mix(in srgb, var(--warn-soft) 55%, var(--surface)); }
 .open-shift-box .card-pad { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; justify-content: space-between; }
 .osb-text { display: flex; flex-direction: column; gap: 2px; max-width: 520px; }
+
+/* Subscription notice from the Waxool admin portal */
+.billing-banner { padding: 10px 28px; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+.billing-banner.warn { background: var(--warn-soft); color: var(--warn); }
+.billing-banner.locked { background: var(--danger-soft); color: var(--danger); }
+@media (max-width: 860px) { .billing-banner { padding: 10px 16px; } }

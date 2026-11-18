@@ -283,6 +283,8 @@ const TABLES = `
     created_at TEXT NOT NULL DEFAULT ${NOW}
   );
   CREATE INDEX IF NOT EXISTS idx_batches_product ON stock_batches(product_id, expiry_date);
+  -- When the batch was made (optional; entered with a new product's opening stock).
+  ALTER TABLE stock_batches ADD COLUMN IF NOT EXISTS production_date TEXT;
   -- Which batches each sold line came from ([{ "id": batch, "qty": n }]), so voids and returns put them back.
   ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS batches TEXT NOT NULL DEFAULT '[]';
 

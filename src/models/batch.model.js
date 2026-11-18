@@ -2,10 +2,10 @@
 const { db } = require('../config/database');
 
 const BatchModel = {
-  add: ({ productId, expiry, qty, unitCost, purchaseId = null, userId }) =>
+  add: ({ productId, expiry, production = null, qty, unitCost, purchaseId = null, userId }) =>
     db.insert(
-      'INSERT INTO stock_batches (product_id, expiry_date, qty_received, qty_left, unit_cost_cents, purchase_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      productId, expiry, qty, qty, unitCost, purchaseId, userId
+      'INSERT INTO stock_batches (product_id, expiry_date, production_date, qty_received, qty_left, unit_cost_cents, purchase_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      productId, expiry, production, qty, qty, unitCost, purchaseId, userId
     ),
 
   findById: (id) => db.get('SELECT * FROM stock_batches WHERE id = ?', id),

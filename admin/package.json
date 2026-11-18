@@ -1,0 +1,18 @@
+{
+  "name": "waxool-admin",
+  "version": "1.0.0",
+  "description": "Waxool admin portal (ad.waxool.com): client shops, monthly invoices, payments and portal licences",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-concurrency=1 test/",
+    "db:create": "node scripts/create-local-db.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}
